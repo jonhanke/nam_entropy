@@ -127,7 +127,7 @@ or
 
 #### 3. Mutual Information
 The mutual information describes the amount of informatino that of two random variables give about each other.
-By definition, the __mutual information__ ${\displaystyle \operatorname {I} (Z, L)}$ of the two random variables $Z$ and $L$ is given by
+By definition, the __mutual information__ ${\displaystyle \mathrm{I} (Z, L)}$ of the two random variables $Z$ and $L$ is given by
 
 ${\displaystyle \mathrm{I} (Z, L) := \mathrm{H} (Z) - \mathrm{H} (Z|L)\,},$
 
