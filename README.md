@@ -129,7 +129,7 @@ or
 The mutual information describes the amount of informatino that of two random variables give about each other.
 By definition, the __mutual information__ ${\displaystyle \operatorname {I} (Z, L)}$ of the two random variables $Z$ and $L$ is given by
 
-${\displaystyle \operatorname {I} (Z, L) := \mathrm {H} (Z) - \mathrm {H} (Z|L)\,},$
+${\displaystyle \mathrm{I} (Z, L) := \mathrm{H} (Z) - \mathrm{H} (Z|L)\,},$
 
 where 
 - $Z$ := Population data distribution (continuous vector-valued RV),
