@@ -1,0 +1,15 @@
+## Ignore system-specific files and intermediate build files
+.DS_Store
+*.pyc
+.ipynb_checkpoints/
+model_cache/
+
+## Ignore intermediate data and image files created form notebooks
+notebooks/*.json
+notebooks/*.png
+notebooks/*.csv
+
+## Production server files
+*.pid
+*.sock
+
