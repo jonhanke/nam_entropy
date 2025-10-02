@@ -62,7 +62,6 @@ nam_entropy/
 │     ├─ make_data.py
 │     ├─ data_prep.py
 │     ├─ bin_distribution_plots.py
-│     ├─ distribution_2d_sampler.py
 │     ├─ integrated_distribution_2d_sampler.py
 │     └─ h.py
 └─ tests/
