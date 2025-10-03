@@ -24,6 +24,3 @@ shell:
 notebook:
 	poetry run jupyter notebook
 
-## Start the web server for entropy analysis
-webserver:
-	poetry run webserver
