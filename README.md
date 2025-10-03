@@ -49,6 +49,7 @@ nam_entropy/
 ├─ pyproject.toml
 ├─ poetry.lock
 ├─ README.md
+├─ LICENSE
 ├─ .gitignore
 ├─ Makefile                           # optional convenience commands
 ├─ .env.example                       # example environment variables
