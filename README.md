@@ -104,7 +104,7 @@ $$H(Z|L) = \sum_{l \in L} p(l) H(Z|L=l)$$
 
 where the entropy conditioned on the particular label value $L = l$ is given by 
 
-$$H(Z|L=l) = -\sum_{z \in Z} p(z|l) \, \log p(z|l),$$
+$$H(Z|L=l) = -\sum_{z \in Z} p(z|l) \log p(z|l),$$
 
 and where
 - $Z$ := Population data distribution (continuous vector-valued RV),
