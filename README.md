@@ -14,15 +14,8 @@
 
 - [Overview](#overview)
 - [Project Structure](#project-structure)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-  - [Jupyter Notebooks](#jupyter-notebooks)
-- [Configuration](#configuration)
-- [Data Layout](#data-layout)
-- [Usage](#usage)
-  - [Python API](#python-api)
-  - [CLI (optional)](#cli-optional)
+- [Soft Entropy Estimates](#soft-entropy-estimates)
+- [References](#references)
 
 
 ## Overview
@@ -73,7 +66,7 @@ nam_entropy/
 
 
 
-## Key Soft Entropy Estimates
+## Soft Entropy Estimates
 
 This package uses the soft entropy estimation methodology in **[Conklin (2025), Section 5.4](#primary-theoretical-framework)** 
 to provide a discrete approximation to differentiable entropy computation. This approach enables
