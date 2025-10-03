@@ -104,7 +104,7 @@ $$H(Z|L) = \sum_{l \in L} p(l) H(Z|L=l)$$
 
 where the entropy conditioned on the particular label value $L = l$ is given by 
 
-$$H(Z|L=l) = -\sum_{z \in Z} p(z|l) \log p(z|l),$$
+$$H(Z|L=l) = -\sum_{z \in Z} p(z|l) \, \log p(z|l),$$
 
 and where
 - $Z$ := Population data distribution (continuous vector-valued RV),
@@ -121,9 +121,9 @@ or
 
 #### 3. Mutual Information
 The mutual information describes the amount of informatino that of two random variables give about each other.
-By definition, the __mutual information__ ${\displaystyle \mathrm{I} (Z, L)}$ of the two random variables $Z$ and $L$ is given by
+By definition, the __mutual information__ $I(Z, L)$ of the two random variables $Z$ and $L$ is given by
 
-${\displaystyle \mathrm{I} (Z, L) := \mathrm{H} (Z) - \mathrm{H} (Z|L)\,},$
+$$I(Z, L) := H(Z) - H(Z|L),$$
 
 where 
 - $Z$ := Population data distribution (continuous vector-valued RV),
