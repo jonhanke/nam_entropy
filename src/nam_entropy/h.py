@@ -1,6 +1,6 @@
 """
-Soft Entropy Calculation Module (new_h.py)
-==========================================
+Soft Entropy Calculation Module (h.py)
+=======================================
 
 This module implements soft entropy calculation methods for analyzing neural network representations.
 It provides functions for:
@@ -22,7 +22,7 @@ import torch.nn.functional as F
 
 from entmax import sparsemax
 from torch.distributions import Uniform
-#from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans
 
 
 
@@ -32,10 +32,22 @@ from torch.distributions import Uniform
 ## ==========================================================================
 
 
-def soft_bin(all_representations, n_bins, bins=None, centers=None, 
-            temp=1.0, dist_fn='cosine', bin_type='uniform', sub_mean=False, n_heads=4,
-            smoothing_fn="softmax", online_bins=None, set_var=1.0, online_var=None, 
-            show_diagnostics=False):        
+
+def soft_bin(all_representations: torch.Tensor,
+             n_bins: int,
+             bins: Optional[torch.Tensor] = None,
+             centers: Optional[torch.Tensor] = None,
+             temp: float = 1.0,
+             dist_fn: Literal['cosine', 'euclidean', 'dot', 'cosine_5', 'cluster'] = 'cosine',
+             bin_type: Literal['uniform', 'standard_normal', 'unit_sphere', 'unit_cube', 'cluster'] = 'uniform',
+             sub_mean: bool = False,
+             n_heads: int = 1,
+             smoothing_fn: Literal["softmax", "sparsemax", "discrete", "None"] = "softmax",
+             online_bins: Optional[torch.Tensor] = None,
+             set_var: float = 1.0,
+             online_var: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+             show_diagnostics: bool = False
+             ) -> Tuple[torch.Tensor, torch.Tensor]:    
     """
     Performs soft binning of neural representations using various distance metrics.
 
@@ -380,7 +392,10 @@ def smoothing(scores: torch.Tensor, temp: float, smoothing_fn: str) -> torch.Ten
 
 
 
-def cluster(all_representations, n_bins, just_bins=True):
+def cluster(all_representations: torch.Tensor,
+            n_bins: int,
+            just_bins: bool = True
+            ) -> torch.Tensor:
     """
     Performs K-means clustering for bin generation or scoring.
 
@@ -436,12 +451,6 @@ def multi_js_divergence(classes: torch.Tensor, p_class: torch.Tensor,
     Note:
         Result is normalized by the maximum possible entropy to ensure
         scores are comparable across different numbers of classes
-
-
-    DEVELOPER NOTES:
-        - The classes are tensors whose last index runs over the finite set 
-            of points where the probability is supported.
-
 
     """
     ## Expand p_class for broadcasting:  [n_classes] --> [n_classes, 1]
@@ -678,9 +687,14 @@ def entropy(dist: torch.Tensor, normalization: str = None) -> float:
 
 
 
-def compute_all_entropy_measures(data_embeddings_tensor, data_label_indices_tensor, label_list, 
-                                 n_bins=10, n_heads=1, 
-                                 conditional_entropy_label_weighting="weighted"):
+def compute_all_entropy_measures(
+        data_embeddings_tensor: torch.Tensor,
+        data_label_indices_tensor: torch.Tensor,
+        label_list: list,
+        n_bins: int = 10,
+        n_heads: int = 1,
+        conditional_entropy_label_weighting: Literal["weighted", "uniform"] = "weighted"
+    ) -> dict:
     """
     Run the soft-binning and related entropy calculations on the given labelled emdeddings data.
 
