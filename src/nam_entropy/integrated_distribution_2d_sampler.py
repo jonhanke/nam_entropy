@@ -331,6 +331,15 @@ class Integrated2DDistributionWidget:
             indent=False
         )
 
+        # Show label entropies toggle
+        self.show_label_entropies = widgets.Checkbox(
+            value=True,
+            description='Show Label Entropies',
+            style={'description_width': '200px'},
+            layout=widgets.Layout(width='400px'),
+            indent=False
+        )
+
         # Bins display mode (numbers vs X markers)
         self.bins_display_mode = widgets.Dropdown(
             options=[('X Markers', 'x'), ('Numbers', 'numbers')],
@@ -417,6 +426,7 @@ class Integrated2DDistributionWidget:
         self.show_individual_plots.observe(self.update_display_only, names='value')
         self.show_combined_plot.observe(self.update_display_only, names='value')
         self.show_entropy_display.observe(self.update_entropy_display_visibility, names='value')
+        self.show_label_entropies.observe(lambda change: self.update_entropy_display(), names='value')
         self.combined_plot_size.observe(self.update_display_only, names='value')
         self.preserve_aspect_ratio.observe(self.update_display_only, names='value')
         self.show_prob_dist_bins.observe(self.update_display_only, names='value')
@@ -587,7 +597,7 @@ class Integrated2DDistributionWidget:
     def update_entropy_display(self):
         """Update the entropy metrics display with enhanced visual layout"""
         with self.entropy_display:
-            clear_output(wait=True)
+            clear_output(wait=False)
 
             # Always show content when this is called (visibility controlled by entropy_section)
             if self._last_entropy_data is not None and ENTROPY_AVAILABLE:
@@ -638,6 +648,61 @@ class Integrated2DDistributionWidget:
                     metric_boxes = HBox([entropy_box, cond_entropy_box, mutual_info_box],
                                        layout=widgets.Layout(justify_content='space-around', margin='10px 0'))
                     display(metric_boxes)
+
+
+                    # Display label-dependent conditional entropies (second row)
+                    if self.show_label_entropies.value:
+                        label_entropy_dict = output_metrics.get('label_entropy_dict', {})
+                        if label_entropy_dict:
+
+                            # Filter out 'total_population' to get only label-specific entropies
+                            label_entropies_raw = {k: v for k, v in label_entropy_dict.items() if k != 'total_population'}
+
+                            # Get number of distributions
+                            n_dists = len(label_entropies_raw)
+
+                            # Shorten "Distribution" to "Dist" when there are more than 5 distributions
+                            label_entropies = {}
+                            for k, v in label_entropies_raw.items():
+                                if (n_dists < 8) and (n_dists > 5):
+                                    shortened_label = k.replace('Distribution ', 'Dist ')
+                                    label_entropies[shortened_label] = v
+                                elif n_dists >= 8:
+                                    shortened_label = k.replace('Distribution ', '')
+                                    label_entropies[shortened_label] = v
+                                else:
+                                    label_entropies[k] = v
+
+                            # Sort labels by numeric index to ensure correct order (1, 2, ..., 9, 10)
+                            def extract_number(label):
+                                import re
+                                match = re.search(r'(\d+)', label)
+                                return int(match.group(1)) if match else 0
+
+                            label_entropies = dict(sorted(label_entropies.items(), key=lambda x: extract_number(x[0])))
+
+
+                            if label_entropies:
+                                # Create boxes for each label entropy
+                                label_boxes = []
+                                # Use consistent colors matching the scatter plots
+                                colors_mpl = plt.cm.tab10(np.linspace(0, 1, n_dists))
+
+                                for idx, (label, entropy_value) in enumerate(label_entropies.items()):
+                                    color_rgba = colors_mpl[idx]
+                                    color_hex = '#{:02x}{:02x}{:02x}'.format(int(color_rgba[0]*255), int(color_rgba[1]*255), int(color_rgba[2]*255))
+                                    entropy_display_val = f"{entropy_value:.4f}" if entropy_value is not None else "---"
+                                    label_box = widgets.HTML(
+                                        value=f"<div style='text-align: center;'><h4 style='color: {color_hex}; margin: 0; font-size: 14px;'>H(Z|L={label})</h4><p style='font-size: 16px; margin: 5px 0; font-weight: bold;'>{entropy_display_val}</p></div>",
+                                        layout=widgets.Layout(width=f'{max(15, 90//len(label_entropies))}%', border=f'2px solid {color_hex}', padding='10px', margin='5px')
+                                    )
+                                    label_boxes.append(label_box)
+
+                                # Display label entropy boxes
+                                label_boxes_container = HBox(label_boxes,
+                                                            layout=widgets.Layout(justify_content='space-around', margin='10px 0'))
+                                display(label_boxes_container)
+
 
                 else:
                     # Fallback display for no metrics
@@ -1226,6 +1291,7 @@ class Integrated2DDistributionWidget:
             self.show_individual_plots,
             self.show_combined_plot,
             self.show_entropy_display,
+            self.show_label_entropies,            
             self.preserve_aspect_ratio,
             self.show_prob_dist_bins,
             self.show_prob_dist_chart

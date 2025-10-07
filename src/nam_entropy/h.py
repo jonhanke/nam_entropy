@@ -919,6 +919,7 @@ def compute_all_entropy_measures(
             'conditional_entropy': conditional_entropy_of_population_given_the_label,
             'mutual_information': mutual_information,
             #'multi-JS_divergence': multi_JS_div,
+            'label_entropy_dict': entropy_dict,
         }    
     }
     return output_dict
