@@ -1247,6 +1247,9 @@ class Integrated2DDistributionWidget:
             self.entropy_display
         ], layout=widgets.Layout(margin='10px 0'))
 
+        ## Initialize entropy section visibility based on checkbox state
+        self.update_entropy_display_visibility()
+  
         # Build initial parameter container
         self.param_container = self.build_parameter_widgets()
 
