@@ -300,8 +300,8 @@ def distance(all_representations: torch.Tensor,
         batch x heads x dimensions, heads x dimensions x points (bins)
         -> batch x heads x points (bins)
         '''
-        all_representations = F.normalize_by_scaling(all_representations, dim=-1)*5
-        bins = F.normalize_by_scaling(bins, dim=-1)*5
+        all_representations = F.normalize(all_representations, dim=-1)*5
+        bins = F.normalize(bins, dim=-1)*5
         
         ## This puts the number of bins first, i.e.
         ## [n_bins, n_heads, D//n_heads] -> [n_heads, D//n_heads, n_bins]
