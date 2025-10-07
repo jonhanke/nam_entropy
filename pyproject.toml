@@ -3,42 +3,33 @@ name = "nam-entropy"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "Jonathan Hanke",email = "jonhanke@princeton.edu"}
+    {name = "Jonathan Hanke", email = "jonhanke@princeton.edu"}
 ]
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-    "torch (>=2.8.0,<3.0.0)",
-    "attr (>=0.3.2,<0.4.0)",
-    "ipywidgets (>=8.1.7,<9.0.0)",
-    "python-dotenv (>=1.1.1,<2.0.0)",
-    "entmax (>=1.3,<2.0)",
-    "pytest (>=8.4.2,<9.0.0)",
-    "pandas (>=2.3.2,<3.0.0)",
-    "numpy (>=2.3.3,<3.0.0)"
+    "torch>=2.8.0,<3.0.0",
+    "attr>=0.3.2,<0.4.0",
+    "ipywidgets>=8.1.7,<9.0.0",
+    "python-dotenv>=1.1.1,<2.0.0",
+    "entmax>=1.3,<2.0",
+    "pytest>=8.4.2,<9.0.0",
+    "pandas>=2.3.2,<3.0.0",
+    "numpy>=2.3.3,<3.0.0",
+    "scikit-learn (>=1.7.2,<2.0.0)",
 ]
 
-[tool.poetry]
-
 [tool.poetry.dependencies]
-python = ">=3.12,<3.14"
-
-[tool.poetry.group.dev.dependencies]
-pandas = "^2.3.2"
 seaborn = "^0.13.2"
 matplotlib = "^3.10.6"
 datasets = "^4.0.0"
 tqdm = "^4.67.1"
 transformers = "^4.56.1"
-numpy = "^2.3.3"
 scipy = "^1.16.2"
 sparsemax = "^0.1.9"
 notebook = "^7.4.5"
 ipykernel = "^6.30.1"
 flask = "^2.3.3"
-
-[tool.poetry.scripts]
-webserver = "webserver.app:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
