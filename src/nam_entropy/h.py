@@ -24,6 +24,7 @@ from entmax import sparsemax
 from torch.distributions import Uniform
 from sklearn.cluster import KMeans
 
+from typing import Optional, Literal, Tuple
 
 
 
