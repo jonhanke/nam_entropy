@@ -40,7 +40,7 @@ def soft_bin(all_representations: torch.Tensor,
              centers: Optional[torch.Tensor] = None,
              temp: float = 1.0,
              dist_fn: Literal['cosine', 'euclidean', 'dot', 'cosine_5', 'cluster'] = 'cosine',
-             bin_type: Literal['uniform', 'standard_normal', 'unit_sphere', 'unit_cube', 'cluster'] = 'uniform',
+             bin_type: Literal['uniform', 'standard_normal', 'unit_sphere', 'unit_cube_by_bins', 'unit_cube_by_interpolation', 'cluster'] = 'uniform',
              sub_mean: bool = False,
              n_heads: int = 1,
              smoothing_fn: Literal["softmax", "sparsemax", "discrete", "None"] = "softmax",
@@ -72,11 +72,9 @@ def soft_bin(all_representations: torch.Tensor,
         online_var (tuple, optional): Cached variance statistics
 
     Returns:
-        tuple: (scores, centres, centres, bins, online_var)
+        tuple: (scores, bins)
             - scores: Soft assignment probabilities [N, n_heads, n_bins]
-            - centres: Bin centers
             - bins: Bin locations used for scoring
-            - online_var: Updated variance statistics
 
     Example:
         >>> representations = torch.randn(100, 64)
@@ -115,7 +113,7 @@ def soft_bin(all_representations: torch.Tensor,
 
     ## Compute the soft-binned probability distributions 
     all_representations = head_reshape(all_representations, n_heads)  ## [N, D] --> [N, n_heads, D//n_heads]
-    scores = distance(all_representations, bins, dist_fn)  ## Returns [N, n_heads, n_bins]
+    scores = distance_scores(all_representations, bins, dist_fn)  ## Returns [N, n_heads, n_bins]
     scores = smoothing(scores, temp, smoothing_fn)   ## Takes / Returns: [N, n_heads, n_bins]
 
     ## Return the desired output
@@ -156,8 +154,8 @@ def get_bins(all_representations:torch.Tensor,
     - 'uniform': Uniformly random bins within data range
     - 'standard_normal': Standard normal random bins
     - 'unit_sphere': L2-normalized random bins
-    - 'N_unit_sphere': Scaled unit sphere bins (N=10,50,100)
-    - 'unit_cube': Evenly spaced bins within data range
+    - 'unit_cube_by_bins': Evenly spaced bins within data range
+    - 'unit_cube_by_interpolation': Evenly spaced interpolation points within data range
     - 'cluster': K-means clustering-based bins
 
     Args:
@@ -201,13 +199,21 @@ def get_bins(all_representations:torch.Tensor,
     elif bin_type == 'unit_sphere':
         bins = torch.randn((n_bins, d_hidden))
         bins = bins.view(n_bins, n_heads, int(d_hidden/n_heads))
-        bins = F.normalize_by_scaling(bins, dim=-1)
+        bins = F.normalize(bins, dim=-1)
        
-    elif bin_type == 'unit_cube':
+    elif bin_type == 'unit_cube_by_bins':
         bins = unit_cube_bins(
             start=all_representations.min(0).values,
             stop=all_representations.max(0).values,
             n_bins=n_bins
+        ).T
+        bins = bins.view(n_bins, n_heads, int(d_hidden/n_heads))
+        
+    elif bin_type == 'unit_cube_by_interpolation':
+        bins = interpolate_tensors(
+            minns=all_representations.min(0).values,
+            maxxes=all_representations.max(0).values,
+            steps=n_bins - 1
         ).T
         bins = bins.view(n_bins, n_heads, int(d_hidden/n_heads))
         
@@ -225,8 +231,8 @@ def get_bins(all_representations:torch.Tensor,
 
 
 
-def distance(all_representations: torch.Tensor, 
-             bins: torch.Tensor, distance_fn: str) -> torch.Tensor:
+def distance_scores(all_representations: torch.Tensor, 
+                    bins: torch.Tensor, distance_fn: str) -> torch.Tensor:
     """
     Computes distance scores between representations and bins.
 
@@ -272,6 +278,7 @@ def distance(all_representations: torch.Tensor,
             bins,
             p=2,
         )
+
         ## Finally, if there is only one head, we remove this (superfluous) index
         ##   [N, n_heads, n_bins]  if n_heads > 1, or
         ##   [N, n_bins]  if n_heads == 1
@@ -282,12 +289,14 @@ def distance(all_representations: torch.Tensor,
         batch x heads x dimensions, heads x dimensions x points (bins)
         -> batch x heads x points (bins)
         '''
+        ## Normalize both the data and bins to be on the unit sphere
         all_representations = F.normalize(all_representations, dim=-1)
         bins = F.normalize(bins, dim=-1)
         
         ## This puts the number of bins first, i.e.
         ## [n_bins, n_heads, D//n_heads] -> [n_heads, D//n_heads, n_bins]
         bins = bins.permute(1, 2, 0)
+
         ## Take the dot product in the embedding dimension of both tensors 
         ##   all_representations = [N, n_heads, D//n_heads]
         ##   bins =                [n_heads, D//n_heads, n_bins]
@@ -300,12 +309,14 @@ def distance(all_representations: torch.Tensor,
         batch x heads x dimensions, heads x dimensions x points (bins)
         -> batch x heads x points (bins)
         '''
+        ## Normalize both the data and bins to be on the sphere of radius r=5
         all_representations = F.normalize(all_representations, dim=-1)*5
         bins = F.normalize(bins, dim=-1)*5
         
         ## This puts the number of bins first, i.e.
         ## [n_bins, n_heads, D//n_heads] -> [n_heads, D//n_heads, n_bins]
         bins = bins.permute(1, 2, 0)
+
         ## Take the dot product in the embedding dimension of both tensors 
         ##   all_representations = [N, n_heads, D//n_heads]
         ##   bins =                [n_heads, D//n_heads, n_bins]
@@ -321,6 +332,7 @@ def distance(all_representations: torch.Tensor,
         ## This puts the number of bins first, i.e.
         ## [n_bins, n_heads, D//n_heads] -> [n_heads, D//n_heads, n_bins]
         bins = bins.permute(1, 2, 0)
+
         ## Take the dot product in the embedding dimension of both tensors 
         ##   all_representations = [N, n_heads, D//n_heads]
         ##   bins =                [n_heads, D//n_heads, n_bins]
@@ -336,6 +348,7 @@ def distance(all_representations: torch.Tensor,
         ## This puts the number of bins first, i.e.
         ## [n_bins, n_heads, D//n_heads] -> [n_heads, D//n_heads, n_bins]
         bins = bins.permute(1, 2, 0)
+
         ## This transforms our data back to the "headless" version, i.e. from 
         ##   all_representations = [N, n_heads, D//n_heads]
         ## to 
@@ -425,6 +438,100 @@ def cluster(all_representations: torch.Tensor,
         
         return scores
 
+
+
+
+## ==========================================================================
+## ===================== LINEAR INTERPOLATION ROUTINES ======================
+## ==========================================================================
+
+
+@torch.jit.script
+def unit_cube_bins(start: torch.Tensor, stop: torch.Tensor, n_bins: int) -> torch.Tensor:
+    """
+    Creates evenly spaced bins between start and stop values across multiple dimensions.
+
+    This function replicates multi-dimensional behavior of numpy.linspace in PyTorch
+    and is optimized for use with TorchScript compilation.
+
+    Args:
+        start (torch.Tensor): Starting values for each dimension
+        stop (torch.Tensor): Ending values for each dimension
+        n_bins (int): Number of bins to create (will be incremented by 1)
+
+    Returns:
+        torch.Tensor: Bin centers with shape [n_dims, n_bins]
+
+    Example:
+        >>> start = torch.tensor([0.0, -1.0])
+        >>> stop = torch.tensor([1.0, 1.0])
+        >>> centers = unit_cube_bins(start, stop, 5)
+        >>> print(centers.shape)  # torch.Size([2, 5])
+
+    """
+    n_bins +=1
+    # create a tensor of 'n_bins' steps from 0 to 1
+    steps = torch.arange(n_bins, dtype=torch.float32, device=start.device) / (n_bins - 1)
+    
+    # reshape the 'steps' tensor to [-1, *([1]*start.ndim)] to allow for broadcastings
+    # - using 'steps.reshape([-1, *([1]*start.ndim)])' would be nice here but torchscript
+    #   "cannot statically infer the expected size of a list in this contex", hence the code below
+    for i in range(start.ndim):
+        steps = steps.unsqueeze(-1)
+    
+    # the output starts at 'start' and increments until 'stop' in each dimension
+    bins = (start[None] + steps*(stop - start)[None]).T
+    
+    bin_widths = (bins[:, 1:] - bins[:, :-1])
+    centers = bins[:, :-1] + (bin_widths/2)
+        
+    return centers
+
+
+
+def interpolate_tensors(minns: torch.Tensor, maxxes: torch.Tensor, steps: int) -> torch.Tensor:
+    """
+    Create a 2D tensor of coordinate-wise linear interpolations between min and max values.
+    
+    This function generates evenly spaced interpolated values between corresponding 
+    elements of two 1D tensors, creating a 2D output where each row contains the 
+    interpolated sequence for one coordinate pair.
+    
+    Args:
+        minns (torch.Tensor): 1D tensor of minimum values for each coordinate.
+            Shape: (n,) where n is the number of coordinates.
+        maxxes (torch.Tensor): 1D tensor of maximum values for each coordinate.
+            Must have the same shape as minns.
+        steps (int, optional): Number of interpolation steps (points) to generate
+            for each coordinate pair. Defaults to 11.
+    
+    Returns:
+        torch.Tensor: 2D tensor of interpolated values with shape (len(minns), steps).
+            Each row i contains `steps` evenly spaced values from minns[i] to maxxes[i].
+    
+    Example:
+        >>> minns = torch.tensor([0.0, 1.0, 2.0])
+        >>> maxxes = torch.tensor([10.0, 5.0, 8.0])
+        >>> result = interpolate_tensors(minns, maxxes, 5)
+        >>> print(result.shape)
+        torch.Size([3, 5])
+        >>> print(result)
+        tensor([[ 0.0000,  2.5000,  5.0000,  7.5000, 10.0000],
+                [ 1.0000,  2.0000,  3.0000,  4.0000,  5.0000],
+                [ 2.0000,  3.5000,  5.0000,  6.5000,  8.0000]])
+    
+    Note:
+        This function is equivalent to:
+        torch.stack([torch.linspace(minns[i], maxxes[i], steps) 
+                    for i in range(len(minns))])
+        but is more efficient due to vectorized operations and PyTorch's 
+        optimized linear interpolation kernel.
+    """
+    t = torch.linspace(0, 1, steps).unsqueeze(0)
+    minns = minns.unsqueeze(1)
+    maxxes = maxxes.unsqueeze(1)
+    
+    return torch.lerp(minns, maxxes, t)
 
 
 
