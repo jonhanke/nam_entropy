@@ -1266,11 +1266,12 @@ class Integrated2DDistributionWidget:
         self.update_plot()
 
 
+
 ## ===================================================================
-## ==================  Compatibility Layer ====================
+## ====================  User Display Routines =======================
 ## ===================================================================
 
-def Distribution2DSampler(save_path=None, max_distributions=10):
+def SimpleDistribution2DSampler(save_path=None, max_distributions=10):
     """Factory function providing Distribution2DSampler interface for backward compatibility.
 
     Creates an Integrated2DDistributionWidget with entropy features hidden by default,
@@ -1290,6 +1291,32 @@ def Distribution2DSampler(save_path=None, max_distributions=10):
     widget.show_entropy_display.value = False
     widget.show_prob_dist_bins.value = False
     widget.show_prob_dist_chart.value = False
+    widget.show_combined_plot.value = True  # Always show combined plot in simple mode
+
+    return widget
+
+
+
+def Distribution2DSampler(save_path=None, max_distributions=10):
+    """Factory function providing Distribution2DSampler interface for backward compatibility.
+
+    Creates an Integrated2DDistributionWidget with entropy features hidden by default,
+    matching the simpler interface used in Notebook B.
+
+    Args:
+        save_path: Path to save CSV data (optional)
+        max_distributions: Maximum number of distributions (default: 10)
+
+    Returns:
+        Integrated2DDistributionWidget instance configured for simple sampling mode
+    """
+    # Create the integrated widget
+    widget = Integrated2DDistributionWidget(save_path=save_path, max_distributions=max_distributions)
+
+    # Configure for simple mode (hide entropy-related features by default)
+    widget.show_entropy_display.value = True
+    widget.show_prob_dist_bins.value = True
+    widget.show_prob_dist_chart.value = True
     widget.show_combined_plot.value = True  # Always show combined plot in simple mode
 
     return widget
