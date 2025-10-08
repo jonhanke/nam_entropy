@@ -13,6 +13,7 @@
 ## Table of Contents
 
 - [Overview](#overview)
+- [Installation](#installation)
 - [Project Structure](#project-structure)
 - [Soft Entropy Estimates](#soft-entropy-estimates)
 - [References](#references)
@@ -31,6 +32,25 @@ Our target audience is:
 - Cognitive Scientists who want an easy way to understand information-theoretic metrics for the information that a Nerual Network model carry about token and sentences via their embeddings.
 - Maching Learning researchers who are interested in using parts of our efficient implementation in their workflow to understand the entropy and mutual information in their latent space model representations.
 - Other researchers interested in computing entropy and information theory to their work.
+
+
+
+## Installation
+
+To install the package dependencies, you can use either [poetry](https://python-poetry.org/) or [conda](https://anaconda.org/anaconda/conda) after changing to the package directory (containing `pyproject.toml` and `environment.yml`).   
+
+### Install with Poetry
+```
+poetry install
+```
+(This creates a poetry virtual environment: `nam-entropy-<hash>`.)
+
+### Install with Conda  
+```
+conda env create -f environment.yml
+```
+(This creates the conda virtual environment: `nam-entropy-conda`.)
+
 
 
 
