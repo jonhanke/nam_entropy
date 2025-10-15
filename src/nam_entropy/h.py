@@ -38,12 +38,12 @@ def soft_bin(all_representations: torch.Tensor,
              n_bins: int,
              bins: Optional[torch.Tensor] = None,
              centers: Optional[torch.Tensor] = None,
-             temp: float = 1.0,
-             dist_fn: Literal['cosine', 'euclidean', 'dot', 'cosine_5', 'cluster'] = 'cosine',
+             dist_fn: Literal['cosine', 'euclidean', 'dot', 'cosine_5', 'cluster'] = 'euclidean',
              bin_type: Literal['uniform', 'standard_normal', 'unit_sphere', 'unit_cube_by_bins', 'unit_cube_by_interpolation', 'cluster'] = 'uniform',
              sub_mean: bool = False,
              n_heads: int = 1,
-             smoothing_fn: Literal["softmax", "sparsemax", "discrete", "None"] = "softmax",
+             smoothing_fn: Literal["softmax", "sparsemax", "discrete", "None"] = "None",
+             smoothing_temp: float = 1.0,
              online_bins: Optional[torch.Tensor] = None,
              set_var: float = 1.0,
              online_var: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
@@ -114,7 +114,7 @@ def soft_bin(all_representations: torch.Tensor,
     ## Compute the soft-binned probability distributions 
     all_representations = head_reshape(all_representations, n_heads)  ## [N, D] --> [N, n_heads, D//n_heads]
     scores = distance_scores(all_representations, bins, dist_fn)  ## Returns [N, n_heads, n_bins]
-    scores = smoothing(scores, temp, smoothing_fn)   ## Takes / Returns: [N, n_heads, n_bins]
+    scores = smoothing(scores, smoothing_temp, smoothing_fn)   ## Takes / Returns: [N, n_heads, n_bins]
 
     ## Return the desired output
     return scores, bins
@@ -542,7 +542,7 @@ def interpolate_tensors(minns: torch.Tensor, maxxes: torch.Tensor, steps: int) -
 
 
 def multi_js_divergence(classes: torch.Tensor, p_class: torch.Tensor, 
-                        max_normalisation: str = "weighted") -> torch.Tensor:
+                        max_normalization: str = "weighted") -> torch.Tensor:
     """
     Computes multi-way Jensen-Shannon divergence.
 
@@ -578,18 +578,18 @@ def multi_js_divergence(classes: torch.Tensor, p_class: torch.Tensor,
     js_divs = m_entropies - weighted_average_class_entropy   # [] - [] --> []
 
 
-    ## Normalisation bounds (theoretical maximum JS divergence -- uniform and weighted)
+    ## Normalization bounds (theoretical maximum JS divergence -- uniform and weighted)
     uniform_entropy = torch.log(torch.tensor(p_class.shape[0]))   ## Max at the uniform distribution
-    weighted_class_entropy = entropy(p_expanded.T, normalisation=None).mean()   ## p_expanded.T ==> [1, n_classes]
+    weighted_class_entropy = entropy(p_expanded.T, normalization=None).mean()   ## p_expanded.T ==> [1, n_classes]
     
     ## Compute the desired normalized JS divergence
-    allowed_max_normalisations = ["uniform", "weighted"]
-    if max_normalisation == "uniform":
+    allowed_max_normalizations = ["uniform", "weighted"]
+    if max_normalization == "uniform":
         result = js_divs / uniform_entropy
-    elif max_normalisation == "weighted":
+    elif max_normalization == "weighted":
         result = js_divs / weighted_class_entropy
     else:
-        raise ValueError(f"max_normalisation = {max_normalisation} must be in {allowed_max_normalisations}.")
+        raise ValueError(f"max_normalization = {max_normalization} must be in {allowed_max_normalizations}.")
     
     ## Return the desired result
     return result
@@ -600,7 +600,7 @@ def multi_js_divergence(classes: torch.Tensor, p_class: torch.Tensor,
 
 def js_divergence(p: torch.Tensor, q: torch.Tensor, 
                   eps: float = 1e-9, use_xlogy: bool = True,
-                  normalisation: str = None) -> torch.Tensor:
+                  normalization: str = None) -> torch.Tensor:
     """
     Computes Jensen-Shannon divergence between two distributions.
     
@@ -613,36 +613,36 @@ def js_divergence(p: torch.Tensor, q: torch.Tensor,
     Args:
         p, q (torch.Tensor): Input distributions. Last dimension should contain
                            the probability values.
-        normalisation (str, optional): How to normalize inputs if the last index values don't sum to 1:
+        normalization (str, optional): How to normalize inputs if the last index values don't sum to 1:
                                      - None: No normalization (assume already normalized)
-                                     - "scaling": Divide by sum (L1 normalisation)  
-                                     - "softmax": Apply softmax normalisation
+                                     - "scaling": Divide by sum (L1 normalization)  
+                                     - "softmax": Apply softmax normalization
         eps (float): Small epsilon for numerical stability. Default: 1e-9
 
     Returns:
         torch.Tensor: JS divergence score(s)
         
     Raises:
-        ValueError: If the normalisation parameter is invalid
+        ValueError: If the normalization parameter is invalid
         
     Note:
         - The input tensors must have the same shape or be broadcastable
-        - Normalisation is applied along the last dimension
+        - Normalization is applied along the last dimension
         - For numerical stability when use_xlogy is False, a small epsilon 
             (clamping) parameter is present to address issues at log(0).
     """
-    ## Validate the normalisation parameter
-    valid_normalisations = {None, "scaling", "softmax"}
-    if normalisation not in valid_normalisations:
-        raise ValueError(f"Invalid normalization '{normalisation}'. "
-                        f"Must be one of {valid_normalisations}")
+    ## Validate the normalization parameter
+    valid_normalizations = {None, "scaling", "softmax"}
+    if normalization not in valid_normalizations:
+        raise ValueError(f"Invalid normalization '{normalization}'. "
+                        f"Must be one of {valid_normalizations}")
 
     ## Normalize the distribution in case it doesn't already sum to 1
-    if normalisation is not None:
-        if normalisation == "scaling":
+    if normalization is not None:
+        if normalization == "scaling":
             p = normalize_by_scaling(p)
             q = normalize_by_scaling(q)
-        elif normalisation == "softmax":
+        elif normalization == "softmax":
             p = normalize_by_softmax(p)
             q = normalize_by_softmax(q)
 
@@ -650,8 +650,8 @@ def js_divergence(p: torch.Tensor, q: torch.Tensor,
     m = 0.5 * (p + q)
 
     ## Compute the average of the two KL-divergences with m
-    js_div = 0.5 * kl_divergence(p, m, normalisation=None, eps=eps, use_xlogy=use_xlogy) + \
-             0.5 * kl_divergence(q, m, normalisation=None, eps=eps, use_xlogy=use_xlogy)
+    js_div = 0.5 * kl_divergence(p, m, normalization=None, eps=eps, use_xlogy=use_xlogy) + \
+             0.5 * kl_divergence(q, m, normalization=None, eps=eps, use_xlogy=use_xlogy)
     
     ## Return the desired value
     return js_div
@@ -661,7 +661,7 @@ def js_divergence(p: torch.Tensor, q: torch.Tensor,
 
 def kl_divergence(p: torch.Tensor, q: torch.Tensor, 
                   eps: float = 1e-9, use_xlogy: bool = True, 
-                  normalisation: str = None) -> torch.Tensor:
+                  normalization: str = None) -> torch.Tensor:
     """
     Computes Kullback-Leibler divergence between distributions.
 
@@ -676,18 +676,18 @@ def kl_divergence(p: torch.Tensor, q: torch.Tensor,
         Uses clamping to avoid numerical issues with log(0)
 
     """
-    ## Validate the normalisation parameter
-    valid_normalisations = {None, "scaling", "softmax"}
-    if normalisation not in valid_normalisations:
-        raise ValueError(f"Invalid normalization '{normalisation}'. "
-                        f"Must be one of {valid_normalisations}")
+    ## Validate the normalization parameter
+    valid_normalizations = {None, "scaling", "softmax"}
+    if normalization not in valid_normalizations:
+        raise ValueError(f"Invalid normalization '{normalization}'. "
+                        f"Must be one of {valid_normalizations}")
 
     ## Normalize the distribution in case it doesn't already sum to 1
-    if normalisation is not None:
-        if normalisation == "scaling":
+    if normalization is not None:
+        if normalization == "scaling":
             p = normalize_by_scaling(p)
             q = normalize_by_scaling(q)
-        elif normalisation == "softmax":
+        elif normalization == "softmax":
             p = normalize_by_softmax(p)
             q = normalize_by_softmax(q)
 
@@ -765,11 +765,11 @@ def entropy(dist: torch.Tensor, normalization: str = None) -> float:
         to handle numerical issues with log(0)
 
     """
-    ## Validate the normalisation parameter
+    ## Validate the normalization parameter
     valid_normalizations = {None, "scaling", "softmax"}
     if normalization not in valid_normalizations:
         raise ValueError(f"Invalid normalization '{normalization}'. "
-                        f"Must be one of {valid_normalisztions}")
+                        f"Must be one of {valid_normalizations}")
 
     ## Normalize the distribution in case it doesn't already sum to 1
     if normalization is not None:
@@ -904,7 +904,7 @@ def compute_all_entropy_measures(
 
     ## Compute the multi-JS Divergence
     #multi_JS_div = multi_js_divergence(classes=tmp_scores__no_heads, p_class=distribution_of_labels, 
-    #                    max_normalisation=conditional_entropy_label_weighting)
+    #                    max_normalization=conditional_entropy_label_weighting)
 
     
     ## Return the desired quantities as a dictionary
