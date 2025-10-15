@@ -141,11 +141,20 @@ def _sample_from_distribution(dist:  Union[dist.Distribution, Any], n_samples: i
     ## Check if it's a SciPy distribution (has rvs method)
     elif hasattr(dist, 'rvs'):
         ## SciPy distribution
-        samples = dist.rvs(size=n_samples)
-        if samples.ndim == 0:  # Single sample case
-            samples = np.array([samples])
+        samples = dist.rvs(size=(n_samples,))
+
+        ## Handle SciPy dimension inconsistencies
+        if samples.ndim == 0:  # Single scalar sample
+            samples = np.array([[samples]])  # Shape: (1, 1)
+        elif samples.ndim == 1 and n_samples == 1:  # Single sample from multi-dim distribution
+            samples = samples.reshape(1, -1)  # Shape: (1, n_dims)
+        elif samples.ndim == 1:  # Multiple samples from 1D distribution
+            samples = samples.reshape(-1, 1)  # Shape: (n_samples, 1)
+
+        ## Convert the answer to a numpy array
         samples = np.asarray(samples)
-    
+
+
     ## Check if it's a callable (custom sampling function)
     elif callable(dist):
         try:
