@@ -2,6 +2,9 @@
 ## Imports for entropy calculation and demo notebooks:
 ## ---------------------------------------------------
 
+## Import utility functions
+from .utils import set_all_random_seeds
+
 ## Import data creation / preparation routines
 from .make_data import make_samples_dataframe_from_distributions
 from .data_prep import data_df_to_pytorch_data_tensors_and_labels, \
