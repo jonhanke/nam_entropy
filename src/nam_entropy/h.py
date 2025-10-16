@@ -224,8 +224,9 @@ def get_bins(all_representations:torch.Tensor,
         bins = bins.view(n_bins, n_heads, int(d_hidden/n_heads))
     else:
         raise NotImplementedError
-        
-    bins = bins.to(all_representations.device)
+
+    # Ensure bins match the input data's device AND dtype
+    bins = bins.to(device=all_representations.device, dtype=all_representations.dtype)
     return bins
     
 
@@ -795,20 +796,353 @@ def entropy(dist: torch.Tensor, normalization: str = None) -> float:
 
 
 
+## ==========================================================================
+## ==================== ONLINE ENTROPY ACCUMULATOR ==========================
+## ==========================================================================
+
+
+class EntropyAccumulator:
+    """
+    Stateful accumulator for online/distributed entropy calculations.
+
+    Maintains running counts and bins for incremental entropy computation without
+    needing to store all data. Supports distributed computation via merge().
+
+    Example:
+        >>> # Online computation
+        >>> acc = EntropyAccumulator(n_bins=10, label_list=['A', 'B', 'C'])
+        >>> for batch_data, batch_labels in dataloader:
+        >>>     acc.update(batch_data, batch_labels)
+        >>> metrics = acc.compute_metrics()
+
+        >>> # Distributed computation
+        >>> acc1 = EntropyAccumulator(n_bins=10, label_list=['A', 'B'])
+        >>> acc2 = EntropyAccumulator(n_bins=10, label_list=['A', 'B'])
+        >>> acc1.update(batch1_data, batch1_labels)
+        >>> acc2.update(batch2_data, batch2_labels)
+        >>> acc1.merge(acc2)
+        >>> metrics = acc1.compute_metrics()
+    """
+
+    def __init__(self, n_bins: int, label_list: list, embedding_dim: Optional[int] = None,
+                 n_heads: int = 1, dist_fn: str = 'euclidean', bin_type: str = 'uniform',
+                 smoothing_fn: str = 'None', smoothing_temp: float = 1.0):
+        """
+        Initialize the entropy accumulator.
+
+        Args:
+            n_bins: Number of bins for soft-binning
+            label_list: List of unique label names
+            embedding_dim: Dimension of data embeddings. Required for data-independent bin types
+                          like 'unit_sphere', 'standard_normal'. Optional for data-dependent
+                          bin types like 'uniform'. If provided, bins are pre-computed.
+            n_heads: Number of attention heads (default: 1)
+            dist_fn: Distance function for soft-binning (default: 'euclidean')
+            bin_type: Binning strategy (default: 'uniform')
+            smoothing_fn: Smoothing function (default: 'None')
+            smoothing_temp: Temperature for smoothing (default: 1.0)
+        """
+        self.n_bins = n_bins
+        self.label_list = label_list
+        self.embedding_dim = embedding_dim
+        self.n_heads = n_heads
+        self.num_labels = len(label_list)
+        self.dist_fn = dist_fn
+        self.bin_type = bin_type
+        self.smoothing_fn = smoothing_fn
+        self.smoothing_temp = smoothing_temp
+
+        # Running counts (unnormalized) - initialized on first update
+        self.total_count = 0
+        self.total_scores_sum = None      # Shape: [n_bins]
+        self.label_scores_sum = None      # Shape: [num_labels, n_bins]
+        self.label_counts = None          # Shape: [num_labels]
+
+        # Fixed bins - pre-compute if embedding_dim is provided and bin_type is data-independent
+        self.bins = None
+        self.dtype = None
+        self.device = None
+
+        # Pre-compute bins if possible
+        if embedding_dim is not None and bin_type in ['unit_sphere', 'standard_normal']:
+            self._precompute_bins()
+
+    def _precompute_bins(self):
+        """
+        Pre-compute bins for data-independent bin types.
+        Only works for 'unit_sphere' and 'standard_normal' bin types.
+        """
+        d_hidden = self.embedding_dim
+
+        if self.bin_type == 'unit_sphere':
+            bins = torch.randn((self.n_bins, d_hidden))
+            bins = bins.view(self.n_bins, self.n_heads, int(d_hidden/self.n_heads))
+            bins = F.normalize(bins, dim=-1)
+        elif self.bin_type == 'standard_normal':
+            bins = torch.randn((self.n_bins, d_hidden))
+            bins = bins.view(self.n_bins, self.n_heads, int(d_hidden/self.n_heads))
+        else:
+            raise ValueError(f"Cannot pre-compute bins for bin_type='{self.bin_type}'. "
+                           f"Only 'unit_sphere' and 'standard_normal' are supported.")
+
+        self.bins = bins
+        # Note: dtype and device will be set when first batch is processed
+
+    def update(self, data_tensor: torch.Tensor, index_tensor: torch.Tensor):
+        """
+        Add a new batch of data to the accumulator.
+
+        Args:
+            data_tensor: Data embeddings [N, D]
+            index_tensor: Label indices [N], values in range [0, num_labels)
+        """
+        # Initialize dtype and device on first update
+        if self.dtype is None:
+            self.dtype = data_tensor.dtype
+            self.device = data_tensor.device
+
+        # Compute soft-bin scores using existing or pre-computed bins
+        if self.bins is None:
+            # No pre-computed bins - compute from data (for data-dependent bin types)
+            scores, self.bins = soft_bin(
+                data_tensor,
+                n_bins=self.n_bins,
+                n_heads=self.n_heads,
+                dist_fn=self.dist_fn,
+                bin_type=self.bin_type,
+                smoothing_fn=self.smoothing_fn,
+                smoothing_temp=self.smoothing_temp
+            )
+            # Ensure bins match data dtype for consistency
+            self.bins = self.bins.to(dtype=data_tensor.dtype, device=data_tensor.device)
+        else:
+            # Bins exist (either pre-computed or from first batch) - reuse them
+            bins_same_dtype = self.bins.to(dtype=data_tensor.dtype, device=data_tensor.device)
+            scores, _ = soft_bin(
+                data_tensor,
+                n_bins=self.n_bins,
+                n_heads=self.n_heads,
+                online_bins=bins_same_dtype,  # Use existing bins with matching dtype
+                dist_fn=self.dist_fn,
+                bin_type=self.bin_type,
+                smoothing_fn=self.smoothing_fn,
+                smoothing_temp=self.smoothing_temp
+            )
+
+        # Remove heads dimension
+        scores_no_heads = scores.squeeze(1)
+
+        # Initialize accumulators on first call
+        if self.total_scores_sum is None:
+            self.total_scores_sum = torch.zeros(self.n_bins, dtype=self.dtype, device=self.device)
+            self.label_scores_sum = torch.zeros(self.num_labels, self.n_bins, dtype=self.dtype, device=self.device)
+            self.label_counts = torch.zeros(self.num_labels, dtype=torch.long, device=self.device)
+
+        # Accumulate counts
+        self.total_count += scores_no_heads.shape[0]
+        self.total_scores_sum += scores_no_heads.sum(0)
+        self.label_scores_sum.index_add_(dim=0, source=scores_no_heads, index=index_tensor)
+        self.label_counts += torch.bincount(index_tensor, minlength=self.num_labels)
+
+    def compute_metrics(self, conditional_entropy_label_weighting: Literal["weighted", "uniform"] = "weighted") -> dict:
+        """
+        Compute current entropy metrics from accumulated state.
+
+        Args:
+            conditional_entropy_label_weighting: Weighting scheme for conditional entropy
+                - "weighted": Weight by empirical label probabilities
+                - "uniform": Weight all labels equally
+
+        Returns:
+            Dictionary containing:
+                - entropy: Total population entropy
+                - conditional_entropy: Conditional entropy H(Z|L)
+                - mutual_information: Mutual information I(Z;L)
+                - label_entropy_dict: Per-label and total population entropies
+                - intermediate_data: Probability distributions and bins
+        """
+        if self.total_count == 0:
+            raise ValueError("Cannot compute metrics on empty accumulator. Call update() first.")
+
+        # Normalize to get probability distributions
+        prob_total = self.total_scores_sum / self.total_count
+        prob_by_label = self.label_scores_sum / self.label_counts.unsqueeze(1)
+        label_distribution = (self.label_counts / self.total_count).to(torch.float64)
+
+        # Compute entropies
+        total_entropy = entropy(prob_total)
+        entropy_by_label = entropy(prob_by_label).to(torch.float64)
+
+        # Build entropy dictionary
+        entropy_dict = {'total_population': total_entropy.item()}
+        for i, label in enumerate(self.label_list):
+            entropy_dict[label] = entropy_by_label[i].item()
+
+        # Conditional entropy
+        if conditional_entropy_label_weighting == "weighted":
+            cond_entropy = torch.dot(label_distribution, entropy_by_label).item()
+        else:  # uniform
+            n = len(self.label_list)
+            uniform_dist = torch.ones(n, device=self.device) / n
+            cond_entropy = torch.dot(uniform_dist, entropy_by_label).item()
+
+        # Mutual information
+        mutual_info = total_entropy.item() - cond_entropy
+
+        return {
+            'output_metrics': {
+                'entropy': total_entropy.item(),
+                'conditional_entropy': cond_entropy,
+                'mutual_information': mutual_info,
+                'label_entropy_dict': entropy_dict,
+            },
+            'intermediate_data': {
+                'prob_dist_for_total_population_tensor': prob_total,
+                'prob_dist_by_label_tensor': prob_by_label,
+                'tmp_bins': self.bins,
+            }
+        }
+
+    def merge(self, other: 'EntropyAccumulator'):
+        """
+        Merge state from another accumulator for distributed computation.
+
+        Args:
+            other: Another EntropyAccumulator to merge into this one
+
+        Raises:
+            ValueError: If accumulators have incompatible configurations
+        """
+        # Validate compatibility
+        if self.n_bins != other.n_bins:
+            raise ValueError(f"Cannot merge: n_bins mismatch ({self.n_bins} != {other.n_bins})")
+        if self.num_labels != other.num_labels:
+            raise ValueError(f"Cannot merge: num_labels mismatch ({self.num_labels} != {other.num_labels})")
+        if self.label_list != other.label_list:
+            raise ValueError(f"Cannot merge: label_list mismatch")
+
+        # If this accumulator is empty, adopt other's bins
+        if self.bins is None:
+            self.bins = other.bins
+            self.dtype = other.dtype
+            self.device = other.device
+            self.total_scores_sum = other.total_scores_sum.clone() if other.total_scores_sum is not None else None
+            self.label_scores_sum = other.label_scores_sum.clone() if other.label_scores_sum is not None else None
+            self.label_counts = other.label_counts.clone() if other.label_counts is not None else None
+            self.total_count = other.total_count
+            return
+
+        # If other is empty, nothing to merge
+        if other.bins is None:
+            return
+
+        # Both have data - merge counts
+        self.total_count += other.total_count
+        self.total_scores_sum += other.total_scores_sum
+        self.label_scores_sum += other.label_scores_sum
+        self.label_counts += other.label_counts
+
+    def get_state_dict(self) -> dict:
+        """
+        Get serializable state dictionary for saving/loading.
+
+        Returns:
+            Dictionary containing all accumulator state
+        """
+        return {
+            'n_bins': self.n_bins,
+            'label_list': self.label_list,
+            'embedding_dim': self.embedding_dim,
+            'n_heads': self.n_heads,
+            'num_labels': self.num_labels,
+            'dist_fn': self.dist_fn,
+            'bin_type': self.bin_type,
+            'smoothing_fn': self.smoothing_fn,
+            'smoothing_temp': self.smoothing_temp,
+            'total_count': self.total_count,
+            'total_scores_sum': self.total_scores_sum,
+            'label_scores_sum': self.label_scores_sum,
+            'label_counts': self.label_counts,
+            'bins': self.bins,
+            'dtype': self.dtype,
+            'device': str(self.device) if self.device is not None else None,
+        }
+
+    @classmethod
+    def from_state_dict(cls, state_dict: dict) -> 'EntropyAccumulator':
+        """
+        Restore accumulator from state dictionary.
+
+        Args:
+            state_dict: Dictionary from get_state_dict()
+
+        Returns:
+            Restored EntropyAccumulator instance
+        """
+        acc = cls(
+            n_bins=state_dict['n_bins'],
+            label_list=state_dict['label_list'],
+            embedding_dim=state_dict.get('embedding_dim'),  # Use .get() for backward compatibility
+            n_heads=state_dict['n_heads'],
+            dist_fn=state_dict['dist_fn'],
+            bin_type=state_dict['bin_type'],
+            smoothing_fn=state_dict['smoothing_fn'],
+            smoothing_temp=state_dict['smoothing_temp']
+        )
+        acc.num_labels = state_dict['num_labels']
+        acc.total_count = state_dict['total_count']
+        acc.total_scores_sum = state_dict['total_scores_sum']
+        acc.label_scores_sum = state_dict['label_scores_sum']
+        acc.label_counts = state_dict['label_counts']
+        acc.bins = state_dict['bins']
+        acc.dtype = state_dict['dtype']
+        acc.device = torch.device(state_dict['device']) if state_dict['device'] is not None else None
+        return acc
+
+
+## ==========================================================================
+## =================== BATCH ENTROPY COMPUTATION ============================
+## ==========================================================================
+
+
 def compute_all_entropy_measures(
         data_embeddings_tensor: torch.Tensor,
         data_label_indices_tensor: torch.Tensor,
         label_list: list,
         n_bins: int = 10,
         n_heads: int = 1,
-        conditional_entropy_label_weighting: Literal["weighted", "uniform"] = "weighted"
+        dist_fn: str = 'euclidean',
+        bin_type: str = 'uniform',
+        smoothing_fn: str = 'None',
+        smoothing_temp: float = 1.0,
+        conditional_entropy_label_weighting: Literal["weighted", "uniform"] = "weighted",
+        online_bins: Optional[torch.Tensor] = None
     ) -> dict:
     """
     Run the soft-binning and related entropy calculations on the given labelled emdeddings data.
 
-    Here conditional_entropy_label_weighting = "weighted" or "uniform".
+    Args:
+        data_embeddings_tensor: Data embeddings [N, D]
+        data_label_indices_tensor: Label indices [N], values in range [0, num_labels)
+        label_list: List of unique label names
+        n_bins: Number of bins for soft-binning (default: 10)
+        n_heads: Number of attention heads (default: 1)
+        dist_fn: Distance function for soft-binning (default: 'euclidean')
+        bin_type: Binning strategy (default: 'uniform')
+        smoothing_fn: Smoothing function (default: 'None')
+        smoothing_temp: Temperature for smoothing (default: 1.0)
+        conditional_entropy_label_weighting: "weighted" or "uniform" (default: "weighted")
+        online_bins: Pre-computed bins to use instead of generating new ones (default: None)
 
-    This is used in our computation of the conditional entropy, mutual_information, and the multi_JS_divergence.
+    Returns:
+        Dictionary containing entropy metrics and intermediate data
+
+    Note:
+        conditional_entropy_label_weighting is used in our computation of the
+        conditional entropy, mutual_information, and the multi_JS_divergence.
+
+        If online_bins is provided, it will be used instead of creating new bins. This is
+        useful for ensuring consistency between batch and online computations.
 
     """
     ## Alias the inputs
@@ -816,10 +1150,13 @@ def compute_all_entropy_measures(
     index_tensor = data_label_indices_tensor
 
 
-    
+
     ## Perform the soft-binning
     tmp_scores, tmp_bins = \
-        soft_bin(all_representations = data_tensor, n_bins = n_bins, n_heads = n_heads)
+        soft_bin(all_representations = data_tensor, n_bins = n_bins, n_heads = n_heads,
+                 dist_fn = dist_fn, bin_type = bin_type,
+                 smoothing_fn = smoothing_fn, smoothing_temp = smoothing_temp,
+                 online_bins = online_bins)
 
     ## Get the data tensor with no extra n_heads variable
     tmp_scores__no_heads = tmp_scores.squeeze(1)
