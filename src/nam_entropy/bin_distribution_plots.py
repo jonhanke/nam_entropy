@@ -85,9 +85,50 @@ def compute_non_overlapping_ray_radii(ray_directions, ray_indices=None, base_rad
 
     return radii
 
+
+
+
+def get_label_colors(label_list, colormap='hsv'):
+    """
+    Generate colors for labels using the same formula as plot_unit_circle_scatter_labeled.
+
+    Parameters:
+    -----------
+    label_list : list
+        List of label names
+    colormap : str
+        Matplotlib colormap name (default: 'hsv')
+
+    Returns:
+    --------
+    colors : list
+        List of RGBA color tuples, one per label
+    colors_dict : dict
+        Dictionary mapping label names to RGBA colors
+
+    Example:
+    --------
+    >>> label_list = ['A - Std Normal', 'B - Correlated Normal', 'C - Uniform']
+    >>> colors, colors_dict = get_label_colors(label_list, colormap='hsv')
+    >>> # colors[0] is the color for 'A - Std Normal'
+    >>> # colors_dict['B - Correlated Normal'] gives the color for that label
+    """
+    cmap = plt.get_cmap(colormap)
+    num_labels = len(label_list)
+
+    # Use the same formula as plot_unit_circle_scatter_labeled (line 625)
+    colors = [cmap(i / num_labels) for i in range(num_labels)]
+
+    # Also create a dictionary for easy lookup
+    colors_dict = {label: colors[i] for i, label in enumerate(label_list)}
+
+    return colors, colors_dict
+
+
+
 def plot_tensor_bars(tensor_data, figsize=(10, 6), title='Bar Chart from Tensor',
                      xlabel='Index', ylabel='Value', show_grid=True, separate_plots=True, labels=None,
-                     start_index=0):
+                     start_index=0, cmap='tab10', cmap_based_on='index', num_colors=None, row_colors=None):
     """
     Create a bar chart from a 1D or 2D PyTorch tensor.
     
@@ -111,7 +152,27 @@ def plot_tensor_bars(tensor_data, figsize=(10, 6), title='Bar Chart from Tensor'
         Labels for each row in 2D tensor. If None, uses 'Row 0', 'Row 1', etc.
     start_index : int, optional
         Starting index for x-axis labels. Default 0. Use 1 to start numbering from 1.
-    """
+    cmap : str or Colormap, optional
+        Colormap name (e.g., 'viridis', 'plasma', 'coolwarm', 'tab10') or Colormap object.
+        If None, uses default colors.
+        For 2D overlaid plots (separate_plots=False), colors are assigned to match
+        plot_unit_circle_scatter_labeled behavior.
+    cmap_based_on : str, optional
+        What to base colormap on: 'value' (bar heights) or 'index' (bar positions).
+        Default is 'value'. Only applies to 1D and 2D separate plots when cmap is specified.
+    num_colors : int, optional
+        Number of colors to use for dividing the colormap. This ensures consistent color
+        assignment across plots. If None, uses num_rows for 2D overlaid plots.
+        Example: If you have 3 categories in a scatter plot, use num_colors=3 in the bar plot
+        to ensure the first 3 bars match the scatter plot colors, even if bar plot has more rows.
+    row_colors : list of colors, optional
+        Explicit colors to use for each row (for 2D overlaid plots). Can be a list of:
+        - Color names (e.g., ['red', 'blue', 'green'])
+        - RGB tuples (e.g., [(1.0, 0, 0), (0, 0, 1.0)])
+        - RGBA tuples (e.g., [(1.0, 0, 0, 0.8), (0, 0, 1.0, 0.8)])
+        If provided, overrides cmap and num_colors for color selection.
+        Length must match number of rows in tensor_data.
+     """
     # Handle both 1D and 2D tensors
     if tensor_data.dim() == 1:
         # Single row - create one bar chart
@@ -153,6 +214,18 @@ def plot_tensor_bars(tensor_data, figsize=(10, 6), title='Bar Chart from Tensor'
                 x_positions = range(len(values))
                 x_labels = range(start_index, start_index + len(values))
 
+                # Apply colormap if specified
+                if cmap is not None:
+                    if cmap_based_on == 'value':
+                        norm = Normalize(vmin=values.min(), vmax=values.max())
+                        colors = cm.get_cmap(cmap)(norm(values))
+                    else:  # 'index'
+                        norm = Normalize(vmin=0, vmax=len(values)-1)
+                        colors = cm.get_cmap(cmap)(norm(x_positions))
+                    axes[i].bar(x_positions, values, color=colors)
+                else:
+                    axes[i].bar(x_positions, values)
+
                 axes[i].bar(x_positions, values)
                 axes[i].set_title(f'{title} - {labels[i]}')
                 axes[i].set_xlabel(xlabel)
@@ -168,10 +241,28 @@ def plot_tensor_bars(tensor_data, figsize=(10, 6), title='Bar Chart from Tensor'
             x_positions = range(n_values)
             x_labels = range(start_index, start_index + n_values)
 
+            # Determine colors for each row
+            if row_colors is not None:
+                # Use explicitly provided colors
+                if len(row_colors) != num_rows:
+                    raise ValueError(f"Length of row_colors ({len(row_colors)}) must match number of rows ({num_rows})")
+                colors_to_use = row_colors
+            elif cmap is not None:
+                # Generate colors from colormap
+                colormap_obj = plt.get_cmap(cmap)
+                # Use num_colors if specified, otherwise use num_rows
+                color_divisor = num_colors if num_colors is not None else num_rows
+                # Sample colormap at positions matching the scatter plot formula
+                colors_to_use = [colormap_obj(i / color_divisor) for i in range(num_rows)]
+            else:
+                # Use default matplotlib colors
+                colors_to_use = [None] * num_rows
+
             for i, row in enumerate(tensor_data):
                 values = row.numpy()
                 x_pos = [x + (i - num_rows/2 + 0.5) * width for x in x_positions]
-                plt.bar(x_pos, values, width=width, label=labels[i], alpha=0.8)
+                bar_color = colors_to_use[i]
+                plt.bar(x_pos, values, width=width, label=labels[i], alpha=0.8, color=bar_color)
 
             plt.xlabel(xlabel)
             plt.ylabel(ylabel)
@@ -291,6 +382,7 @@ def plot_unit_circle_scatter(tensor_data, figsize=(8, 8), title='Unit Circle Sca
 def plot_unit_circle_scatter_labeled(tensor_data, labels=None, index_tensor=None,
                                      label_list=None, label_list_row_index_lookup_dict=None,
                                      label_radii=None,
+                                     label_colors=None,
                                      figsize=(8, 8),
                                      title='Unit Circle Scatter Plot (Labeled)',
                                      point_size=20, point_alpha=0.6, colormap='tab10',
@@ -322,6 +414,12 @@ def plot_unit_circle_scatter_labeled(tensor_data, labels=None, index_tensor=None
         - list of radii (same order as label_list)
         - single float to use for all labels
         Default is 1.0 for all labels (unit circle)
+    label_colors : list or dict of colors, optional                                                   │ │
+        Explicit colors to use for each label. Can be:                                                │ │
+        - List of colors (same order as unique_labels)                                                │ │
+        - Dict mapping label names to colors (e.g., {'A': 'red', 'B': 'blue'})                        │ │
+        Colors can be names, RGB tuples, or RGBA tuples.                                              │ │
+        If provided, overrides colormap for color selection.
     figsize : tuple
         Figure size (width, height)
     title : str
@@ -585,9 +683,24 @@ def plot_unit_circle_scatter_labeled(tensor_data, labels=None, index_tensor=None
         # Update max_radius to include all label radii for axis limits
         max_label_radius = max(label_radii_dict.values()) if label_radii_dict else default_label_radius
 
-    # Get colormap
-    cmap = plt.get_cmap(colormap)
-    colors = [cmap(i / len(unique_labels)) for i in range(len(unique_labels))]
+    # Determine colors for each label
+    if label_colors is not None:
+        # Use explicitly provided colors
+        if isinstance(label_colors, dict):
+            # Dictionary mapping labels to colors
+            colors = [label_colors.get(label, 'gray') for label in unique_labels]
+        elif isinstance(label_colors, (list, tuple)):
+            # List of colors 
+            if len(label_colors) != len(unique_labels):
+                raise ValueError(f"Length of label_colors ({len(label_colors)}) must match number of unique labels ({len(unique_labels)})")
+            colors = list(label_colors)
+        else:
+            raise ValueError(f"label_colors must be list or dict, got {type(label_colors)}")
+    else: 
+        # Generate colors from colormap
+        cmap = plt.get_cmap(colormap)
+        colors = [cmap(i / len(unique_labels)) for i in range(len(unique_labels))]
+
 
     # Plot each label group with a different color
     for i, label in enumerate(unique_labels):
