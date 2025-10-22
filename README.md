@@ -69,15 +69,18 @@ nam_entropy/
 ├─ notebooks/
 │  ├─ A. Automatic entropy and information calculations.ipynb
 │  ├─ B. Interactive entropy and information calculations.ipynb
-│  └─ C. Programmatic entropy and information calculations.ipynb
+│  ├─ C. Programmatic entropy and information calculations.ipynb
+│  ├─ D. Programmatic Spherical Entropy and Information Calculations.ipynb
+│  └─ E. Online Spherical Entropy Calculations.ipynb
 ├─ src/
 │  └─ nam_entropy/
 │     ├─ __init__.py
-│     ├─ make_data.py
-│     ├─ data_prep.py
 │     ├─ bin_distribution_plots.py
+│     ├─ data_prep.py
+│     ├─ h.py
 │     ├─ integrated_distribution_2d_sampler.py
-│     └─ h.py
+│     ├─ make_data.py
+│     └─ utils.py
 └─ tests/
 ```
 
