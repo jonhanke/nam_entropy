@@ -226,11 +226,21 @@ class Integrated2DDistributionWidget:
 
         # Optionally include data
         if include_data:
+            # Generate colors using the same formula as render_plots (lines 631, 688, 744, 799, 893)
+            colors = plt.cm.tab10(np.linspace(0, 1, n_dists))
+            colors_list = [tuple(colors[i]) for i in range(n_dists)]
+
+            # Create color dictionary with distribution labels
+            labels = [f"Distribution {i}" for i in range(1, n_dists + 1)]
+            colors_dict = {label: colors_list[i] for i, label in enumerate(labels)}
+
             settings['data'] = {
                 'dataframe': self.get_data(),
                 'cache_data': self.get_cache_data(),
                 'pytorch_data': self._last_pytorch_data,
                 'entropy_data': self._last_entropy_data,
+                'colors': colors_list,  # List of RGBA tuples
+                'colors_dict': colors_dict,  # Dict mapping labels to colors
                 'dataframe_info': {
                     'shape': self.latest_dataframe.shape if self.latest_dataframe is not None else None,
                     'columns': list(self.latest_dataframe.columns) if self.latest_dataframe is not None else None,
@@ -1222,7 +1232,12 @@ class Integrated2DDistributionWidget:
                             data_embeddings_tensor=data_tensor,
                             data_label_indices_tensor=index_tensor,
                             label_list=label_list,
-                            n_bins=self.n_bins.value
+                            n_bins=self.n_bins.value,
+                            n_heads=1,
+                            bin_type="uniform",
+                            dist_fn="euclidean",
+                            smoothing_fn="softmax",
+                            smoothing_temp=1.0,                            
                         )
 
                         # Extract the intermediate data from the entropy calculation
