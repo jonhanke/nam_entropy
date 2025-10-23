@@ -13,7 +13,8 @@ from .data_prep import data_df_to_pytorch_data_tensors_and_labels, \
 
 ## Import visualization routines
 from .integrated_distribution_2d_sampler import SimpleDistribution2DSampler, Distribution2DSampler
-from .bin_distribution_plots import plot_tensor_bars, plot_unit_circle_scatter, compute_non_overlapping_ray_radii, get_label_colors
+from .bin_distribution_plots import plot_tensor_bars, plot_unit_circle_scatter, compute_non_overlapping_ray_radii, \
+                                    get_label_colors, plot_2d_scatter_with_bins, plot_1d_scatter_labeled
 
 
 ## Import main entropy calculation routines

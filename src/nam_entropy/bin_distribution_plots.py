@@ -753,3 +753,504 @@ def plot_unit_circle_scatter_labeled(tensor_data, labels=None, index_tensor=None
 
     return fig, ax
 
+
+
+
+
+
+def plot_2d_scatter_with_bins(
+    data_tensor,
+    index_tensor,
+    label_list,
+    bins=None,
+    bins_mode='numbers',
+    label_colors=None,
+    figsize=(12, 8),
+    title='All Distributions Combined',
+    point_size=25,
+    point_alpha=0.7,
+    preserve_aspect=False,
+    show_legend=True,
+    show_grid=True
+):
+    """
+    Create a 2D scatter plot with labeled data points and optional bin overlay.
+
+    This replicates the "All Distributions Combined" view from SimpleDistribution2DSampler.
+
+    Parameters:
+    -----------
+    data_tensor : torch.Tensor
+        n x 2 tensor where each row is a 2D data point (x, y coordinates)
+    index_tensor : torch.Tensor
+        1D tensor of length n with label indices for each point
+    label_list : list
+        List of label names corresponding to the indices
+    bins : torch.Tensor, optional
+        m x 2 tensor of bin center coordinates to overlay on the plot.
+        If None, no bins are shown.
+    bins_mode : str, optional
+        How to display bins: 'numbers' (numbered annotations) or 'x' (X markers).
+        Default: 'numbers'
+    label_colors : list or dict, optional
+        Colors for each label. Can be:
+        - List of colors (same order as label_list)
+        - Dict mapping label names to colors
+        If None, uses tab10 colormap (matching SimpleDistribution2DSampler)
+    figsize : tuple
+        Figure size (width, height). Default: (12, 8)
+    title : str
+        Plot title. Default: 'All Distributions Combined'
+    point_size : float
+        Size of scatter points. Default: 25
+    point_alpha : float
+        Transparency of points (0-1). Default: 0.7
+    preserve_aspect : bool
+        Whether to use equal aspect ratio. Default: False
+    show_legend : bool
+        Whether to show legend. Default: True
+    show_grid : bool
+        Whether to show grid. Default: True
+
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axes objects
+
+    Example:
+    --------
+    >>> # From sampler widget
+    >>> settings = sampler.get_all_settings(include_data=True)
+    >>> data = settings['data']['pytorch_data']
+    >>> entropy_data = settings['data']['entropy_data']
+    >>>
+    >>> fig, ax = plot_2d_scatter_with_bins(
+    ...     data_tensor=data['data_tensor'],
+    ...     index_tensor=data['index_tensor'],
+    ...     label_list=data['label_list'],
+    ...     bins=entropy_data['prob_dist_bins__no_heads'],
+    ...     bins_mode='numbers',
+    ...     label_colors=settings['data']['colors']
+    ... )
+    """
+    # Validate inputs
+    if data_tensor.dim() != 2 or data_tensor.shape[1] != 2:
+        raise ValueError("data_tensor must be n x 2 (each row is a 2D point)")
+
+    if len(index_tensor) != len(data_tensor):
+        raise ValueError(f"index_tensor length ({len(index_tensor)}) must match data_tensor rows ({len(data_tensor)})")
+
+    # Convert to numpy
+    data_np = data_tensor.numpy()
+    indices_np = index_tensor.numpy()
+
+    # Generate colors if not provided (match SimpleDistribution2DSampler formula)
+    n_labels = len(label_list)
+    if label_colors is None:
+        colors_mpl = plt.cm.tab10(np.linspace(0, 1, n_labels))
+        colors = [colors_mpl[i] for i in range(n_labels)]
+    elif isinstance(label_colors, dict):
+        colors = [label_colors.get(label, 'gray') for label in label_list]
+    else:
+        colors = list(label_colors)
+
+    # Create figure
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
+
+    # Plot each label group with its color
+    for i, label in enumerate(label_list):
+        mask = indices_np == i
+        ax.scatter(
+            data_np[mask, 0],
+            data_np[mask, 1],
+            alpha=point_alpha,
+            s=point_size,
+            color=colors[i],
+            label=label,
+            edgecolors='black',
+            linewidth=0.3
+        )
+
+    # Plot bins if provided
+    if bins is not None:
+        if bins.dim() != 2 or bins.shape[1] != 2:
+            raise ValueError("bins must be m x 2 (each row is a 2D bin center)")
+
+        bins_np = bins.numpy()
+
+        if bins_mode == 'x':
+            # Plot as X markers
+            ax.scatter(
+                bins_np[:, 0],
+                bins_np[:, 1],
+                alpha=0.8,
+                s=80,
+                color='black',
+                marker='x',
+                label='Prob Dist Bins',
+                linewidths=2
+            )
+        elif bins_mode == 'numbers':
+            # Plot as numbered text annotations (starting at 1)
+            for i, (x, y) in enumerate(bins_np):
+                ax.annotate(
+                    str(i + 1),
+                    (x, y),
+                    fontsize=8,
+                    color='black',
+                    weight='bold',
+                    ha='center',
+                    va='center',
+                    bbox=dict(boxstyle='circle,pad=0.2', facecolor='white', alpha=0.8)
+                )
+            # Add a legend entry for the numbers
+            ax.scatter([], [], alpha=0, label='Prob Dist Bins (numbered)')
+        else:
+            raise ValueError(f"bins_mode must be 'x' or 'numbers', got '{bins_mode}'")
+
+    # Configure plot
+    ax.set_title(title, fontsize=14)
+    ax.set_xlabel('X', fontsize=12)
+    ax.set_ylabel('Y', fontsize=12)
+
+    if show_legend:
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+
+    if show_grid:
+        ax.grid(True, alpha=0.3)
+
+    if preserve_aspect:
+        ax.set_aspect('equal', adjustable='box')
+
+    plt.tight_layout()
+
+    return fig, ax
+
+
+
+
+
+
+
+def plot_1d_scatter_labeled(
+    data_tensor,
+    index_tensor,
+    label_list,
+    bins=None,
+    label_colors=None,
+    label_y_positions=None,
+    label_y_spacing=0.3,
+    ylabel_colors=None,
+    bin_label_y_spacing=None,
+    figsize=(12, 6),
+    title='1D Distribution Scatter Plot',
+    point_size=30,
+    point_alpha=0.7,
+    colormap='tab10',
+    show_legend=True,
+    show_grid=True,
+    show_distribution_lines=True,
+    xlabel='Value',
+    ylabel='Distribution',
+    bin_line_color='gray',
+    bin_line_alpha=0.5,
+    bin_line_width=1.5,
+    bin_label_fontsize=10,
+    bin_label_y_offset=0.3
+):
+    """
+    Create a 1D scatter plot with labeled data points on horizontal lines.
+
+    Each distribution is plotted on its own horizontal line, with optional
+    vertical lines marking bin boundaries/centers.
+
+    Parameters:
+    -----------
+    data_tensor : torch.Tensor
+        n x 1 tensor where each row is a 1D data point
+    index_tensor : torch.Tensor
+        1D tensor of length n with label indices for each point
+    label_list : list
+        List of label names corresponding to the indices
+    bins : torch.Tensor or array-like, optional
+        1D tensor/array of bin positions to mark with vertical lines.
+        If None, no bins are shown.
+    label_colors : list or dict, optional
+        Colors for each label. Can be:
+        - List of colors (same order as label_list)
+        - Dict mapping label names to colors
+        If None, uses colormap (default: tab10)
+    label_y_positions : dict or list, optional
+        Y-axis positions for each label. Can be:
+        - Dict mapping label names to y-positions
+        - List of y-positions (same order as label_list)
+        If None, distributes labels evenly using label_y_spacing
+    label_y_spacing : float, optional
+        Vertical spacing between distribution lines when label_y_positions is None.
+        Default: 0.3
+    ylabel_colors : list or dict, optional
+        Colors for y-axis tick labels (population labels). Can be:
+        - List of colors (same order as label_list)
+        - Dict mapping label names to colors
+        If None, uses default black color for all labels
+    bin_label_y_spacing : float, optional
+        Vertical spacing between bin label levels and from top distribution to bins.
+        If None, uses label_y_spacing (same as distribution spacing).
+        Set to a smaller value for tighter bin label spacing.
+        Default: None (uses label_y_spacing)
+    figsize : tuple
+        Figure size (width, height). Default: (12, 6)
+    title : str
+        Plot title
+    point_size : float
+        Size of scatter points. Default: 30
+    point_alpha : float
+        Transparency of points (0-1). Default: 0.7
+    colormap : str
+        Matplotlib colormap name. Default: 'tab10'
+    show_legend : bool
+        Whether to show legend. Default: True
+    show_grid : bool
+        Whether to show grid. Default: True
+    show_distribution_lines : bool
+        Whether to draw horizontal lines for each distribution. Default: True
+    xlabel : str
+        Label for x-axis. Default: 'Value'
+    bin_line_color : str
+        Color for bin marker lines. Default: 'gray'
+    bin_line_alpha : float
+        Transparency of bin lines (0-1). Default: 0.5
+    bin_line_width : float
+        Width of bin lines. Default: 1.5
+    bin_label_fontsize : int
+        Font size for bin number labels. Default: 8
+    bin_label_y_offset : float
+        Vertical offset for bin labels from top of plot. Default: 0.3
+
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axes objects
+
+    Example:
+    --------
+    >>> # Extract 1D projection (e.g., x-coordinate only)
+    >>> data_1d = data_tensor[:, 0:1]  # Keep as n x 1
+    >>>
+    >>> # Extract bin x-coordinates
+    >>> bins_1d = bins[:, 0] if bins is not None else None
+    >>>
+    >>> fig, ax = plot_1d_scatter_labeled(
+    ...     data_tensor=data_1d,
+    ...     index_tensor=index_tensor,
+    ...     label_list=label_list,
+    ...     bins=bins_1d,
+    ...     label_colors=colors
+    ... )
+    """
+    # Validate inputs
+    if data_tensor.dim() == 1:
+        data_tensor = data_tensor.unsqueeze(1)  # Convert n -> n x 1
+
+    if data_tensor.dim() != 2 or data_tensor.shape[1] != 1:
+        raise ValueError("data_tensor must be n x 1 (each row is a 1D point)")
+
+    if len(index_tensor) != len(data_tensor):
+        raise ValueError(f"index_tensor length ({len(index_tensor)}) must match data_tensor rows ({len(data_tensor)})")
+
+    # Convert to numpy
+    data_np = data_tensor.numpy().flatten()  # n x 1 -> n
+    indices_np = index_tensor.numpy()
+
+    # Generate colors if not provided
+    n_labels = len(label_list)
+    if label_colors is None:
+        colors_mpl = plt.cm.get_cmap(colormap)
+        colors = [colors_mpl(i / n_labels) for i in range(n_labels)]
+    elif isinstance(label_colors, dict):
+        colors = [label_colors.get(label, 'gray') for label in label_list]
+    else:
+        colors = list(label_colors)
+
+    # Determine y-positions for each label (in DESCENDING order vertically)
+    if label_y_positions is None:
+        # Default: evenly spaced with configurable spacing, descending order
+        y_positions_dict = {label: (n_labels - 1 - i) * label_y_spacing for i, label in enumerate(label_list)}
+    elif isinstance(label_y_positions, dict):
+        y_positions_dict = label_y_positions
+    elif isinstance(label_y_positions, (list, tuple)):
+        if len(label_y_positions) != n_labels:
+            raise ValueError(f"Length of label_y_positions ({len(label_y_positions)}) must match number of labels ({n_labels})")
+        y_positions_dict = {label: label_y_positions[i] for i, label in enumerate(label_list)}
+    else:
+        raise ValueError(f"label_y_positions must be dict or list, got {type(label_y_positions)}")
+
+    # Create figure
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
+
+    # Get x-axis range for horizontal lines
+    x_min = data_np.min() if len(data_np) > 0 else 0
+    x_max = data_np.max() if len(data_np) > 0 else 1
+    x_padding = (x_max - x_min) * 0.05 if x_max > x_min else 0.1
+
+    # Plot each label group on its horizontal line
+    for i, label in enumerate(label_list):
+        mask = indices_np == i
+        y_pos = y_positions_dict[label]
+
+        # Draw horizontal line for this distribution (if enabled)
+        if show_distribution_lines:
+            ax.plot([x_min - x_padding, x_max + x_padding], [y_pos, y_pos],
+                    color='k', linewidth=0.5, alpha=0.3, zorder=1)
+
+        # Create y-values (all at same height for this label)
+        y_values = np.full(np.sum(mask), y_pos)
+
+        ax.scatter(
+            data_np[mask],
+            y_values,
+            alpha=point_alpha,
+            s=point_size,
+            color=colors[i],
+            label=label,
+            edgecolors='black',
+            linewidth=0.3,
+            zorder=3
+        )
+
+    # Plot bin markers if provided
+    if bins is not None:
+        # Convert to numpy
+        if isinstance(bins, torch.Tensor):
+            bins_np = bins.numpy()
+        else:
+            bins_np = np.array(bins)
+
+        if bins_np.ndim != 1:
+            raise ValueError(f"bins must be 1D, got shape {bins_np.shape}")
+
+        # Use bin_label_y_spacing if provided, otherwise use label_y_spacing
+        bin_spacing = bin_label_y_spacing if bin_label_y_spacing is not None else label_y_spacing
+
+        # Determine y-range for bin lines with uniform spacing
+        # Bottom margin should be label_y_spacing below the lowest distribution
+        y_min = min(y_positions_dict.values()) - label_y_spacing
+        # Set y_max so that the lowest bin label is bin_spacing above the top distribution
+        # Since label positions are computed as: y_max + label_offset (where min offset is bin_label_y_offset)
+        # We want: y_max + bin_label_y_offset = max(y_positions) + bin_spacing
+        # Therefore: y_max = max(y_positions) + bin_spacing - bin_label_y_offset
+        y_max = max(y_positions_dict.values()) + bin_spacing - bin_label_y_offset
+
+        # Sort bins by position to detect overlaps
+        sorted_indices = np.argsort(bins_np)
+
+        # Compute label y-offsets to avoid overlaps with UNIFORM vertical spacing
+        # Estimate label width in data units (rough approximation based on data range)
+        x_range = np.ptp(data_np) if len(data_np) > 0 else 1.0
+        # Assume each label character takes ~0.02 of data range, with ~2 digits average
+        min_spacing = max(0.04 * x_range, 0.1)  # At least 0.1 in data units
+
+        label_y_offsets = {}
+        current_level = 0
+        prev_bin_pos = None
+
+        for idx in sorted_indices:
+            bin_pos = bins_np[idx]
+
+            if prev_bin_pos is not None:
+                spacing = abs(bin_pos - prev_bin_pos)
+                if spacing < min_spacing:
+                    # Too close - move to next level
+                    current_level = (current_level + 1) % 3  # Use 3 levels
+                else:
+                    # Far enough - reset to base level
+                    current_level = 0
+
+            # Use uniform spacing: each level is exactly bin_spacing apart
+            # Level 0: bin_label_y_offset
+            # Level 1: bin_label_y_offset + bin_spacing
+            # Level 2: bin_label_y_offset + 2 * bin_spacing
+            label_y_offsets[idx] = bin_label_y_offset + current_level * bin_spacing
+            prev_bin_pos = bin_pos
+
+        # Find max offset for y-axis limits
+        max_offset = max(label_y_offsets.values()) if label_y_offsets else bin_label_y_offset
+
+        # Draw vertical lines for each bin
+        for i, bin_pos in enumerate(bins_np):
+            # Compute label position (center of circle)
+            label_offset = label_y_offsets[i]
+            label_y_pos = y_max + label_offset
+
+            # Draw vertical line extending to the center of the circle (not beyond)
+            # The line goes from y_min to label_y_pos (where the circle center is)
+            ax.plot([bin_pos, bin_pos], [y_min, label_y_pos],
+                    color=bin_line_color, linewidth=bin_line_width,
+                    alpha=bin_line_alpha, zorder=1)
+
+            # Add bin number label at top with computed offset
+            # Match plot_unit_circle_scatter_labeled style: bbox with circle pad and edgecolor
+            # Text is always black to match unit circle function
+            ax.text(
+                bin_pos,
+                label_y_pos,
+                str(i + 1),  # Start counting at 1
+                fontsize=bin_label_fontsize,
+                ha='center',
+                va='center',  # Center alignment to match unit circle style
+                color='black',  # Always black to match unit circle style
+                weight='bold',
+                bbox=dict(boxstyle='circle,pad=0.3', facecolor='white',
+                         edgecolor=bin_line_color, alpha=0.8),
+                zorder=5  # Matches unit circle style
+            )
+
+    # Configure plot
+    ax.set_title(title, fontsize=14)
+    ax.set_xlabel(xlabel, fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
+
+    # Set y-axis ticks to label names
+    y_ticks = [y_positions_dict[label] for label in label_list]
+    ax.set_yticks(y_ticks)
+    ax.set_yticklabels(label_list)
+
+    # Color the y-axis tick labels if ylabel_colors is provided
+    if ylabel_colors is not None:
+        if isinstance(ylabel_colors, dict):
+            # Dictionary mapping label names to colors
+            for tick_label, label in zip(ax.get_yticklabels(), label_list):
+                color = ylabel_colors.get(label, 'black')
+                tick_label.set_color(color)
+        elif isinstance(ylabel_colors, (list, tuple)):
+            # List of colors (same order as label_list)
+            if len(ylabel_colors) != n_labels:
+                raise ValueError(f"Length of ylabel_colors ({len(ylabel_colors)}) must match number of labels ({n_labels})")
+            for tick_label, color in zip(ax.get_yticklabels(), ylabel_colors):
+                tick_label.set_color(color)
+        else:
+            raise ValueError(f"ylabel_colors must be list or dict, got {type(ylabel_colors)}")
+
+    # Set y-axis limits with uniform spacing
+    if bins is not None:
+        # Bottom margin: exactly label_y_spacing below the lowest distribution
+        y_min_limit = min(y_positions_dict.values()) - label_y_spacing
+        # Compute the highest label position (circle center)
+        highest_label_y_pos = y_max + max_offset
+        # Top margin: use bin_spacing for consistency with bin label spacing
+        # bin_spacing was set earlier in the bins section
+        y_max_limit = highest_label_y_pos + bin_spacing
+        ax.set_ylim(y_min_limit, y_max_limit)
+    else:
+        # No bins - use label_y_spacing for margins
+        y_min_limit = min(y_positions_dict.values()) - label_y_spacing
+        y_max_limit = max(y_positions_dict.values()) + label_y_spacing
+        ax.set_ylim(y_min_limit, y_max_limit)
+
+    if show_legend:
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+
+    if show_grid:
+        ax.grid(True, alpha=0.3, axis='x')
+
+    plt.tight_layout()
+
+    return fig, ax
