@@ -21,8 +21,7 @@ except ImportError:
 
 try:
     import sys
-    sys.path.append('../src/nam_entropy/')
-    from h import compute_all_entropy_measures
+    from .h import compute_all_entropy_measures
     ENTROPY_AVAILABLE = True
 #    print("✓ Entropy calculation functions imported successfully")
 except ImportError:
