@@ -10,6 +10,11 @@ import hashlib
 import pandas as pd
 import os
 from datetime import datetime
+import re
+from io import StringIO
+import traceback
+import sys
+
 
 # Try to import the data prep functions and entropy calculation, but provide fallbacks
 try:
@@ -20,11 +25,9 @@ except ImportError:
     DATA_PREP_AVAILABLE = False
 
 try:
-    import sys
-    sys.path.append('../src/nam_entropy/')
-    from h import compute_all_entropy_measures
+    from .h import compute_all_entropy_measures
     ENTROPY_AVAILABLE = True
-#    print("✓ Entropy calculation functions imported successfully")
+    print("✓ Entropy calculation functions imported successfully")
 except ImportError:
     print("Warning: Could not import entropy calculation functions. Entropy analysis will be disabled.")
     ENTROPY_AVAILABLE = False
@@ -685,7 +688,6 @@ class Integrated2DDistributionWidget:
 
                             # Sort labels by numeric index to ensure correct order (1, 2, ..., 9, 10)
                             def extract_number(label):
-                                import re
                                 match = re.search(r'(\d+)', label)
                                 return int(match.group(1)) if match else 0
 
@@ -1186,8 +1188,6 @@ class Integrated2DDistributionWidget:
                         prepare_labeled_tensor_dataset(samples_tensors_list, input_tensor_labels_list=samples_labels_list)
 
                     # Save as dataframe (suppress output)
-                    import sys
-                    from io import StringIO
                     old_stdout = sys.stdout
                     sys.stdout = StringIO()
                     self.latest_dataframe = convert_tensor_list_to_dataframe(
@@ -1201,8 +1201,6 @@ class Integrated2DDistributionWidget:
                         fallback_prepare_labeled_tensor_dataset(samples_tensors_list, samples_labels_list)
 
                     # Save as dataframe using fallback (suppress output)
-                    import sys
-                    from io import StringIO
                     old_stdout = sys.stdout
                     sys.stdout = StringIO()
                     self.latest_dataframe = fallback_convert_tensor_list_to_dataframe(
@@ -1261,7 +1259,6 @@ class Integrated2DDistributionWidget:
                         # print(f"  Prob dist bins shape: {prob_dist_bins__no_heads.shape}")  # Suppressed
 
                     except Exception as e:
-                        import traceback
                         error_msg = f"⚠ Entropy calculation error: {e}\n{traceback.format_exc()}"
                         print(error_msg)
                         self._last_entropy_error = error_msg  # Store for display
