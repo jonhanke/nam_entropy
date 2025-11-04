@@ -16,12 +16,6 @@ import traceback
 import sys
 
 
-from .data_prep import prepare_labeled_tensor_dataset, convert_tensor_list_to_dataframe
-from .h import compute_all_entropy_measures
-
-
-
-_ = '''
 # Try to import the data prep functions and entropy calculation, but provide fallbacks
 try:
     from .data_prep import prepare_labeled_tensor_dataset, convert_tensor_list_to_dataframe
@@ -31,12 +25,12 @@ except ImportError:
     DATA_PREP_AVAILABLE = False
 
 try:
+    from .h import compute_all_entropy_measures
     ENTROPY_AVAILABLE = True
-#    print("✓ Entropy calculation functions imported successfully")
+    print("✓ Entropy calculation functions imported successfully")
 except ImportError:
     print("Warning: Could not import entropy calculation functions. Entropy analysis will be disabled.")
     ENTROPY_AVAILABLE = False
-'''
 
 
 ## ===================================================================
