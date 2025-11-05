@@ -13,6 +13,7 @@ from .data_prep import data_df_to_pytorch_data_tensors_and_labels, \
 
 ## Import main entropy calculation routines
 from .h import *
+from .h2 import EntropyAccumulator2, soft_bin2, get_bins2, distance_scores2, compute_all_entropy_measures2
 
 ## Import visualization routines
 from .integrated_distribution_2d_sampler import SimpleDistribution2DSampler, Distribution2DSampler
