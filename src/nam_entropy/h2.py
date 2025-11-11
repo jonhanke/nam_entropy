@@ -1,5 +1,5 @@
 """
-Soft Entropy Calculation Module (h.py)
+Soft Entropy Calculation Module (h2.py)
 =======================================
 
 This module implements soft entropy calculation methods for analyzing neural network representations.
@@ -43,6 +43,7 @@ def soft_bin2(all_representations: torch.Tensor,
              bin_type: Literal['uniform', 'standard_normal', 'unit_sphere', 'unit_cube_by_bins', 'unit_cube_by_interpolation', 'cluster'] = 'uniform',
              sub_mean: bool = False,
 #             n_heads: int = 1,
+             extra_internal_label_dims_list = [],    ## e.g. [n_layers+1, n_heads]
              smoothing_fn: Literal["softmax", "sparsemax", "discrete", "None"] = "None",
              smoothing_temp: float = 1.0,
              online_bins: Optional[torch.Tensor] = None,
@@ -74,7 +75,10 @@ def soft_bin2(all_representations: torch.Tensor,
 
     Returns:
         tuple: (scores, bins)
-            - scores: Soft assignment probabilities [N, n_heads, n_bins]
+##            - scores: Soft assignment probabilities [N, n_heads, n_bins]
+##            - scores: Soft assignment probabilities [N, n_bins]
+##            - scores: Soft assignment probabilities [N, ...structural_label_dims..., n_bins]
+            - scores: Soft assignment probabilities [N, *extra_internal_label_dims_list, n_bins]
             - bins: Bin locations used for scoring
 
     Example:
@@ -83,6 +87,11 @@ def soft_bin2(all_representations: torch.Tensor,
         >>> print(scores.shape)  # torch.Size([100, 4, 50])
 
     """
+    ## Set the device and dtype from the given data tensor
+    device = all_representations.device
+    dtype = all_representations.dtype
+
+
     ## Get the max and min values reported in the rows (0th dimension)
     ## as we vary over all other components (i.e. vary over the embedding dimension)
     maxxes = all_representations.max(0).values
@@ -101,15 +110,24 @@ def soft_bin2(all_representations: torch.Tensor,
             #online_var = all_representations.var(0)*(1.0/set_var)
             online_var = (maxxes, minns)
             all_representations = set_var*(all_representations-online_var[1])/(online_var[0]-online_var[1])
-    
-    ## This creates the bins by sampling from a space related to the original data 
-    ## with a given sampling distribution.
-    bins = get_bins2(
-        all_representations, 
-        bin_type, 
-        n_bins, 
-#        n_heads
-    ) if online_bins is None else online_bins
+
+
+    ## Get the desired bins
+    if online_bins is not None:
+        bins = online_bins
+    elif bin_type == "unit_sphere":
+        ambient_dim = all_representations.shape[-1]
+        bins = get_spherical_bins(n_bins=n_bins, ambient_space_dimension = ambient_dim, device=device, dtype=dtype)
+    else:    
+        ## This creates the bins by sampling from a space related to the original data 
+        ## with a given sampling distribution.
+        bins = get_bins2(
+            all_representations, 
+            bin_type, 
+            n_bins, 
+    #        n_heads,
+            extra_internal_label_dims_list = extra_internal_label_dims_list,    ## e.g. [n_layers+1, n_heads]
+        )
     
 
     ## DIAGNOSTIC
@@ -121,7 +139,7 @@ def soft_bin2(all_representations: torch.Tensor,
     ## Compute the soft-binned probability distributions 
 #    all_representations = head_reshape(all_representations, n_heads)  ## [N, D] --> [N, n_heads, D//n_heads]
 #    scores = distance_scores(all_representations, bins, dist_fn)  ## Returns [N, n_heads, n_bins]
-    scores = distance_scores2(all_representations, bins, dist_fn)  ## Returns [N,n_bins]
+    scores = distance_scores2(all_representations, bins, dist_fn)  ## Returns [N, n_bins]
     scores = smoothing(scores, smoothing_temp, smoothing_fn)   ## Takes / Returns: [N, n_heads, n_bins]
 
     ## Return the desired output
@@ -323,6 +341,30 @@ def get_bins(all_representations:torch.Tensor,
     bins = bins.to(device=all_representations.device, dtype=all_representations.dtype)
     return bins
     
+
+
+## DEVELOPER NOTES:
+## ----------------
+## get_spherical_bins(n_bins:int) -- only needs to know the dimension of the ambient space of the unit sphere, not the data distribution
+## get_rectangular_bins(rect_min:tuple, rect_max:tuple, n_bins:int) -- needs to know the two extremal corners of the bounding box
+## get_..._bins() --TBD
+##
+## These should replace the get_bins2() routine, not use any internal label dimensions, and be cleaner/simpler! =)
+##
+
+def get_spherical_bins(n_bins:int, ambient_space_dimension:int, device:torch.device, dtype:torch.dtype) -> torch.Tensor:
+    """
+    Generates a tensor whose rows are the desired bin locations 
+    on the unit sphere ||x|| = 1 in the ambient euclidean space.
+    """
+    ## Generate the desired number of bins on the unit sphere in the desired ambient space 
+    bins = torch.randn((n_bins, ambient_space_dimension))
+    bins = F.normalize(bins, dim=-1)
+
+    # Ensure bins match the input data's device AND dtype
+    bins = bins.to(device=device, dtype=dtype)
+    return bins
+
 
 
 
@@ -553,6 +595,12 @@ def distance_scores(all_representations: torch.Tensor,
     return scores
     
 
+## TO DO:
+## NOTE: We want to compute the distance tensor using the last dimension of the tensor, 
+##       where the bins are given as a [n_bins, D] tensor, and all_representations 
+##       is a [n_samples, *structural_label_dims_list, D] tensor.  Here the output is 
+##       is a [n_samples, *structural_label_dims_list; n_bins] tensor.
+
 
 def distance_scores2(all_representations: torch.Tensor, 
                     bins: torch.Tensor, distance_fn: str) -> torch.Tensor:
@@ -629,10 +677,11 @@ def distance_scores2(all_representations: torch.Tensor,
         bins = F.normalize(bins, dim=-1)
 
         ## Take the dot product in the embedding dimension of both tensors 
-        ##   all_representations = [N, D]
+        ##   all_representations = [N, *extra_internal_label_dims_list, D]
         ##   bins =                [n_bins, D]
-        ## giving the final dot-product tensor of scores the shape [N, n_bins]
-        scores = torch.einsum('nd,bd->nb', all_representations, bins)
+        ## where we broadcast across all extra_internal_dimensions -- 
+        ## giving the final dot-product tensor of scores the shape [N, *extra_internal_label_dims_list, n_bins]
+        scores = torch.einsum('n...d,bd->n...b', all_representations, bins)
 
 
     elif distance_fn == "cosine_5":
@@ -645,10 +694,11 @@ def distance_scores2(all_representations: torch.Tensor,
         bins = F.normalize(bins, dim=-1) * 5
 
         ## Take the dot product in the embedding dimension of both tensors 
-        ##   all_representations = [N, D]
+        ##   all_representations = [N, *extra_internal_label_dims_list, D]
         ##   bins =                [n_bins, D]
-        ## giving the final dot-product tensor of scores the shape [N, n_bins]
-        scores = torch.einsum('nd,bd->nb', all_representations, bins)
+        ## where we broadcast across all extra_internal_dimensions -- 
+        ## giving the final dot-product tensor of scores the shape [N, *extra_internal_label_dims_list, n_bins]
+        scores = torch.einsum('n...d,bd->n...b', all_representations, bins)
 
 
     elif distance_fn == "dot":
@@ -657,10 +707,11 @@ def distance_scores2(all_representations: torch.Tensor,
         -> batch x heads x points (bins)
         '''
         ## Take the dot product in the embedding dimension of both tensors 
-        ##   all_representations = [N, D]
+        ##   all_representations = [N, *extra_internal_label_dims_list, D]
         ##   bins =                [n_bins, D]
-        ## giving the final dot-product tensor of scores the shape [N, n_bins]
-        scores = torch.einsum('nd,bd->nb', all_representations, bins)
+        ## where we broadcast across all extra_internal_dimensions -- 
+        ## giving the final dot-product tensor of scores the shape [N, *extra_internal_label_dims_list, n_bins]
+        scores = torch.einsum('n...d,bd->n...b', all_representations, bins)
 
 #    _ = """
 #    elif distance_fn == "cluster":
@@ -686,6 +737,9 @@ def distance_scores2(all_representations: torch.Tensor,
     return scores    
 
 
+
+
+## NOTE: This applies smoothing based on normalizations applied in the last dimension!
 
 def smoothing(scores: torch.Tensor, temp: float, smoothing_fn: str) -> torch.Tensor:
     """
@@ -1458,6 +1512,8 @@ class EntropyAccumulator2():
 
     def __init__(self, n_bins: int, label_list: list, embedding_dim: Optional[int] = None,
 #                 n_heads: int = 1, 
+                 extra_internal_label_dims_list = [],
+                 extra_internal_label_dims_name_list = [],
                  extra_label_dim_size_vector: list[int] = [], 
                  dist_fn: str = 'euclidean', bin_type: str = 'uniform',
                  smoothing_fn: str = 'None', smoothing_temp: float = 1.0):
@@ -1482,6 +1538,8 @@ class EntropyAccumulator2():
         self.embedding_dim = embedding_dim
 #        self.n_heads = n_heads
         self.n_heads = 1               ## DELETE THIS AFTER DEPRECATING IT!
+        self.extra_internal_label_dims_list = extra_internal_label_dims_list
+        self.extra_internal_label_dims_name_list = extra_internal_label_dims_name_list
         self.extra_label_dim_size_vector = []
         self.num_labels = len(label_list)
         self.dist_fn = dist_fn
@@ -1503,6 +1561,7 @@ class EntropyAccumulator2():
         # Pre-compute bins if possible
         if embedding_dim is not None and bin_type in ['unit_sphere', 'standard_normal']:
             self._precompute_bins()
+
 
     def _precompute_bins(self):
         """
@@ -1526,13 +1585,14 @@ class EntropyAccumulator2():
         self.bins = bins
         # Note: dtype and device will be set when first batch is processed
 
+
     def update(self, data_tensor: torch.Tensor, index_tensor: torch.Tensor):
         """
         Add a new batch of data to the accumulator.
 
         Args:
-            data_tensor: Data embeddings [N, D]
-            index_tensor: Label indices [N], values in range [0, num_labels)
+            data_tensor: Data embeddings [N, *extra_internal_label_dims_list, D]
+            index_tensor: Label indices [N] -- with values in range [0, num_labels)
         """
         # Initialize dtype and device on first update
         if self.dtype is None:
@@ -1546,6 +1606,7 @@ class EntropyAccumulator2():
                 data_tensor,
                 n_bins=self.n_bins,
 #                n_heads=self.n_heads,
+                extra_internal_label_dims_list=self.extra_internal_label_dims_list,
                 dist_fn=self.dist_fn,
                 bin_type=self.bin_type,
                 smoothing_fn=self.smoothing_fn,
@@ -1560,6 +1621,7 @@ class EntropyAccumulator2():
                 data_tensor,
                 n_bins=self.n_bins,
 #                n_heads=self.n_heads,
+                extra_internal_label_dims_list=self.extra_internal_label_dims_list,
                 online_bins=bins_same_dtype,  # Use existing bins with matching dtype
                 dist_fn=self.dist_fn,
                 bin_type=self.bin_type,
@@ -1581,6 +1643,7 @@ class EntropyAccumulator2():
         self.total_scores_sum += scores_no_heads.sum(0)
         self.label_scores_sum.index_add_(dim=0, source=scores_no_heads, index=index_tensor)
         self.label_counts += torch.bincount(index_tensor, minlength=self.num_labels)
+
 
     def compute_metrics(self, conditional_entropy_label_weighting: Literal["weighted", "uniform"] = "weighted") -> dict:
         """
@@ -1641,6 +1704,7 @@ class EntropyAccumulator2():
             }
         }
 
+
     def merge(self, other: 'EntropyAccumulator'):
         """
         Merge state from another accumulator for distributed computation.
@@ -1680,6 +1744,7 @@ class EntropyAccumulator2():
         self.label_scores_sum += other.label_scores_sum
         self.label_counts += other.label_counts
 
+
     def get_state_dict(self) -> dict:
         """
         Get serializable state dictionary for saving/loading.
@@ -1705,6 +1770,7 @@ class EntropyAccumulator2():
             'dtype': self.dtype,
             'device': str(self.device) if self.device is not None else None,
         }
+
 
     @classmethod
     def from_state_dict(cls, state_dict: dict) -> 'EntropyAccumulator':
@@ -1743,12 +1809,16 @@ class EntropyAccumulator2():
 ## ==========================================================================
 
 
+## TO DO: REVISIT THIS TO COMPUTE THE CONDITIONAL ENTROPIES FOR EACH (SUB-)POPULATION!
+
 def compute_all_entropy_measures2(
         data_embeddings_tensor: torch.Tensor,
         data_label_indices_tensor: torch.Tensor,
         label_list: list,
         n_bins: int = 10,
 ##        n_heads: int = 1,
+        extra_internal_label_dims_list = [],
+        extra_internal_label_dims_name_list = [],  ## e.g. ['layer output index plus-one (zero is pre-layers)', 'head index']
         dist_fn: str = 'euclidean',
         bin_type: str = 'uniform',
         smoothing_fn: str = 'None',
@@ -1760,7 +1830,7 @@ def compute_all_entropy_measures2(
     Run the soft-binning and related entropy calculations on the given labelled emdeddings data.
 
     Args:
-        data_embeddings_tensor: Data embeddings [N, D]
+        data_embeddings_tensor: Data embeddings [N, *extra_internal_label_dims_list, D]
         data_label_indices_tensor: Label indices [N], values in range [0, num_labels)
         label_list: List of unique label names
         n_bins: Number of bins for soft-binning (default: 10)
@@ -1791,61 +1861,208 @@ def compute_all_entropy_measures2(
 
     ## Perform the soft-binning
     tmp_scores, tmp_bins = \
-        soft_bin2(all_representations = data_tensor, n_bins = n_bins, #n_heads = n_heads,
+        soft_bin2(all_representations = data_tensor, n_bins = n_bins, 
+                 #n_heads = n_heads,
+                 extra_internal_label_dims_list = extra_internal_label_dims_list,
+                 #extra_internal_label_dims_name_list = extra_internal_label_dims_name_list,
                  dist_fn = dist_fn, bin_type = bin_type,
                  smoothing_fn = smoothing_fn, smoothing_temp = smoothing_temp,
                  online_bins = online_bins)
+    ## tmp_scores shape = [N, *extra_internal_label_dims_list, n_bins]
+    ## tmp_bins shape = [n_bins]
 
-    ## Get the data tensor with no extra n_heads variable
-    tmp_scores__no_heads = tmp_scores.squeeze(1)
-    tmp_scores__no_heads.shape
+#    ## Get the data tensor with no extra n_heads variable -- REVISIT THIS!!
+#    tmp_scores__no_heads = tmp_scores.squeeze(1)
+#    tmp_scores__no_heads.shape
+
+    ## Alias some useful sizes
+    n_labels = len(label_list)
+
+
+    ## DIAGNOSTIC:
+    print()
+    print(f'n_labels = {n_labels}')
+    print(f'index_tensor.shape = {index_tensor.shape}')
+    print(f'type(tmp_scores) = {type(tmp_scores)}')
+    print(f'tmp_scores.shape = {tmp_scores.shape}')
+    print(f'tmp_scores.shape[1:] = {tmp_scores.shape[1:]}')
+    #print(f'type(tmp_scores.shape[1:]) = {type(tmp_scores.shape[1:])}')
+    #print(f'tuple(tmp_scores.shape[1:]) = {tuple(tmp_scores.shape[1:])}')
+    #print(f'type(tuple(tmp_scores.shape[1:])) = {type(tuple(tmp_scores.shape[1:]))}')
+    #print(f'tuple(tmp_scores.shape[1:])[0] = {tuple(tmp_scores.shape[1:])[0]}')
+    #print(f'type(tuple(tmp_scores.shape[1:])[0]) = {type(tuple(tmp_scores.shape[1:])[0])}')
+    print()
+
+
+    ## 0. Create a tensor of the soft-binned probability distributions per granular label: 
+    ## -----------------------------------------------------------------------------------
+    ## Initialize the new tensor 
+    scores_by_label = torch.zeros(n_labels, *tuple(tmp_scores.shape[1:]), 
+                                  dtype=tmp_scores.dtype, device=tmp_scores.device)  
+                        ## [n_labels, *extra_internal_label_dims_list, n_bins]
+
+
+    ## Create mask to only aggregate rows with for valid label indices
+    valid_label_mask = index_tensor >= 0
+    index_valid_flat = index_tensor[valid_label_mask]  ## [N_valid]
+    tmp_scores_valid = tmp_scores[valid_label_mask]   ## [N_valid, *extra_internal_label_dims_list, n_bins]
+
+
+    ## Expand index_tensor from shape [N_valid]
+    ## to match the shape of tmp_scores: [N_valid, *extra_internal_label_dims_list, n_bins]
+    index_valid = index_valid_flat.view(-1, *([1] * (tmp_scores.ndim - 1)))     ## Add ones for the remaining number of dimensions
+    index_valid = index_valid.expand(-1, *(tmp_scores.shape[1:]))  ## Expand all remaining shapes to have the same values independent of these indices!
+
+    #for _ in range(len(tmp_scores.shape[1:])):
+    #   index_valid = index_valid.unsqueeze(-1)
+    #index_valid.expand_as(tmp_scores_valid)
+
+
+    ## DIAGNOSTIC:
+    print()
+#    print(f'n_labels = {n_labels}')
+    print(f'index_tensor.shape = {index_tensor.shape}')
+#    print(f'index.shape = {index.shape}')
+    print(f'index_valid.shape = {index_valid.shape}')
+    print(f'type(tmp_scores) = {type(tmp_scores)}')
+    print(f'tmp_scores.shape = {tmp_scores.shape}')
+    print(f'tmp_scores_valid.shape = {tmp_scores_valid.shape}')
+    print(f'type(scores_by_label) = {type(scores_by_label)}')
+    print(f'scores_by_label.shape = {scores_by_label.shape}')
+    print(f'scores_by_label.sum() = {scores_by_label.sum()}')
+    print()
+
+
+    ## Scatter-add: sum the valid rows of tmp_scores into according to indices from index_tensor
+    scores_by_label.scatter_add_(0, index_valid, tmp_scores_valid) 
+
+
+    ## DIAGNOSTIC:
+    print()
+    print("Now we've computed the scores_by_label tensor")
+    print(f'scores_by_label.shape = {scores_by_label.shape}')
+    print(f'scores_by_label.sum() = {scores_by_label.sum()}')
+    print()
+
+
+    ## SANITY CHECK:  THE FINAL DIMENSION SUMS SHOULD BE THE NUMBER OF DATA POINTS WITH THAT LABEL! =)
+
+
+    _ = '''
+    ## Return the desired quantities as a dictionary
+    tmp_output_dict = {
+        'diagnostic_data': {
+            'data_tensor': data_tensor,
+            'index_tensor': index_tensor,
+            'label_list': label_list,
+            'n_labels': n_labels,
+            'tmp_scores': tmp_scores,
+            'tmp_bins': tmp_bins,
+            'valid_label_mask': valid_label_mask,
+            'index_valid': index_valid,
+            'tmp_scores_valid': tmp_scores_valid,
+            'scores_by_label': scores_by_label,
+        },
+        'intermediate_data': {
+#            'prob_dist_for_total_population_tensor': prob_dist_for_total_population_tensor,
+#            'prob_dist_by_label_tensor': prob_dist_by_label_tensor,
+            'tmp_bins': tmp_bins,
+        },
+    }
+    return tmp_output_dict
+    '''
 
 
 
     ## 1. Compute the probability distribution for the full dataset:
     ## -------------------------------------------------------------
-    
-    ## Compute the sum of all soft-binned probability distibutions
-    prob_dist_sum_tensor = tmp_scores__no_heads.sum(0)
-    
-    ## Compute the total population probability vector
-    prob_dist_for_total_population_tensor = prob_dist_sum_tensor / tmp_scores__no_heads.shape[0]
+
+    ## This is the probability distribution of the full dataset, here
+    ##      scores_by_label --> [n_labels, *extra_internal_label_dims_list, n_bins]
+    label_indices_tuple = tuple(range(scores_by_label.ndim - 1))
+    population_size_with_internal_dims = torch.tensor(tmp_scores_valid.shape[:-1]).prod().item()  ## Accounts for the number of data points multiplied by all internal dimensions
+    prob_dist_for_total_population_tensor = scores_by_label.sum(dim=label_indices_tuple) / population_size_with_internal_dims      ## shape = [n_bins]
 
 
 
     ## 2. Create the probability distributions for each population label:
     ## ------------------------------------------------------------------
-    
-    ## Prepare to compute the index sum
-    num_samples = index_tensor.shape[0]  ## also data_tensor.shape[0]
-    n_bins = tmp_scores.shape[-1]  ## prob_dist_num_of_points
-    num_labels = len(label_list)
-    
-    ## Get the data tensor with no extra n_heads variable
-    tmp_scores__no_heads = tmp_scores.squeeze(1)
-    
-    ## Compute the sum of the soft-binned probability distributions for each label
-    label_prob_dist_sum_tensor = torch.zeros(num_labels, n_bins, dtype = tmp_scores__no_heads.dtype)
-    label_prob_dist_sum_tensor = label_prob_dist_sum_tensor.index_add(dim=0, source=tmp_scores__no_heads, index=index_tensor)
+    distribution_of_labels = (index_valid_flat.bincount() / index_valid_flat.shape[0]).to(torch.float64)
+
+    ## We also want to know the distribution of labels -- this tensor should sum to N * prod(all internal dimensions).
+    label_counts = torch.bincount(index_valid_flat, minlength=n_labels)
+    internal_label_indices_tuple = tuple(range(1, scores_by_label.ndim - 1))
+
+    #number_of_granular_summands = label_bin_size_tensor * (product of all internal dimension counts)
+    number_of_internal_granular_summands = torch.tensor(scores_by_label.shape)[list(internal_label_indices_tuple)].prod().item()
+    number_of_granular_summands_per_label = label_counts * number_of_internal_granular_summands
+
+    ## Create the 1/(# of summands) tensor per label -- also accounting for when labels don't appear -- [n_labels]
+    inverse_of_number_of_granular_summands_per_label = (1.0 / torch.where(number_of_granular_summands_per_label == 0, 1.0, number_of_granular_summands_per_label))
+
+    ## Compute the probability distribution for each label
+    prob_sum_by_label_tensor = scores_by_label.sum(dim=internal_label_indices_tuple)   ## [n_labels, n_bins]
+    prob_dist_by_label_tensor = prob_sum_by_label_tensor * inverse_of_number_of_granular_summands_per_label[:, None]
 
 
-    ## Determine the label counts (i.e. the number of samples for each label)
-    label_counts_tensor = torch.bincount(index_tensor)
+
+
+
+    _ = '''
     
-    ## Divide by the label counts to get the probability distributions of each label as a row
-    label_prob_dist_avg_tensor = label_prob_dist_sum_tensor / label_counts_tensor.unsqueeze(1)
+    ## Return the desired quantities as a dictionary
+    tmp_output_dict = {
+        'diagnostic_data': {
+            'data_tensor': data_tensor,
+            'index_tensor': index_tensor,
+            'label_list': label_list,
+            'n_labels': n_labels,
+            'tmp_scores': tmp_scores,
+            'tmp_bins': tmp_bins,
+            'valid_label_mask': valid_label_mask,
+            'index_valid': index_valid,
+            'tmp_scores_valid': tmp_scores_valid,
+            'scores_by_label': scores_by_label,
+        },
+        'intermediate_data': {
+            'prob_dist_for_total_population_tensor': prob_dist_for_total_population_tensor,
+            'prob_dist_by_label_tensor': prob_dist_by_label_tensor,
+            'tmp_bins': tmp_bins,
+        },
+    }
+    return tmp_output_dict
 
-    ## Define the probability distributions for each label
-    prob_dist_by_label_tensor = label_prob_dist_avg_tensor
+    '''
 
 
-    
-    ## 3. Compute the probabilities of the labels:
-    ## -------------------------------------------
-    distribution_of_labels = (index_tensor.bincount() / index_tensor.shape[0]).to(torch.float64)
-    #distribution_of_labels
 
-    
+
+
+
+    ## GENERAL ROUTINE:
+    ## ----------------
+
+    ## To compute a probability distribution for a given population (e.g. all labels in layer 2)
+    ##   - start with the fully granular label - soft-bin sum tensor, and the label counts (which trickle-down to the granular counts)
+    ##   - determine the sub-population to sum over
+    ##   - divide the sum by the number of summands to get the subpopulation entropy
+
+    ## Example:
+    ##   - filter for the given values -- e.g. layer 2
+    ##   - compute the sum of all sum
+    ## 
+    ## 
+
+    ## SYNTAX: 
+    ##   entropy({'label':['red', 'blue'] , 'layer':[3,4] , 'head':[1]})
+    ##   --> {'entropy': 2.034,  'cumulative_softbin_tensor': tensor([0.34, 0.12, 0.66]), 
+    ##        'population_size':60, 'population_granular_softbin_tensor': tensor(...)}
+
+    ## NOTE: We need to check that we are dealing with unpopulated labels correctly -- we replace the 1/N normalizing factor with 1 or zero.
+
+
+
+
 
     ## 4. Compute the entropy and related metrics:
     ## -------------------------------------------
@@ -1880,10 +2097,24 @@ def compute_all_entropy_measures2(
     ## Compute the multi-JS Divergence
     #multi_JS_div = multi_js_divergence(classes=tmp_scores__no_heads, p_class=distribution_of_labels, 
     #                    max_normalization=conditional_entropy_label_weighting)
-
     
+
+
+
     ## Return the desired quantities as a dictionary
     output_dict = {
+        'diagnostic_data': {
+            'data_tensor': data_tensor,
+            'index_tensor': index_tensor,
+            'label_list': label_list,
+            'n_labels': n_labels,
+            'tmp_scores': tmp_scores,
+            'tmp_bins': tmp_bins,
+            'valid_label_mask': valid_label_mask,
+            'index_valid': index_valid,
+            'tmp_scores_valid': tmp_scores_valid,
+            'scores_by_label': scores_by_label,
+        },
         'intermediate_data': {
             'prob_dist_for_total_population_tensor': prob_dist_for_total_population_tensor,
             'prob_dist_by_label_tensor': prob_dist_by_label_tensor,
@@ -1895,8 +2126,12 @@ def compute_all_entropy_measures2(
             'mutual_information': mutual_information,
             #'multi-JS_divergence': multi_JS_div,
             'label_entropy_dict': entropy_dict,
+            'extra_internal_label_dims_list' : extra_internal_label_dims_list,
+            'extra_internal_label_dims_name_list' : extra_internal_label_dims_name_list,
         }    
     }
     return output_dict
-    
-    
+
+
+
+
