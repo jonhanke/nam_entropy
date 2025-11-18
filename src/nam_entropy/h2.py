@@ -1510,11 +1510,12 @@ class EntropyAccumulator2():
         >>> metrics = acc1.compute_metrics()
     """
 
-    def __init__(self, n_bins: int, label_list: list, embedding_dim: Optional[int] = None,
+    def __init__(self, n_bins: int, label_name: str, label_list: list, embedding_dim: Optional[int] = None,
 #                 n_heads: int = 1, 
                  extra_internal_label_dims_list = [],
                  extra_internal_label_dims_name_list = [],
-                 extra_label_dim_size_vector: list[int] = [], 
+#                 extra_label_dim_size_vector: list[int] = [], 
+                 probability_label_dim_name = 'probability_label',
                  dist_fn: str = 'euclidean', bin_type: str = 'uniform',
                  smoothing_fn: str = 'None', smoothing_temp: float = 1.0):
         """
@@ -1522,6 +1523,7 @@ class EntropyAccumulator2():
 
         Args:
             n_bins: Number of bins for soft-binning
+            label_name: String for the name of the label
             label_list: List of unique label names
             embedding_dim: Dimension of data embeddings. Required for data-independent bin types
                           like 'unit_sphere', 'standard_normal'. Optional for data-dependent
@@ -1533,25 +1535,38 @@ class EntropyAccumulator2():
             smoothing_fn: Smoothing function (default: 'None')
             smoothing_temp: Temperature for smoothing (default: 1.0)
         """
+        ## DIAGNOSTIC
+        print("Starting ___init__()")
+
+
         self.n_bins = n_bins
+        self.label_name = label_name
         self.label_list = label_list
+        self.n_labels = len(label_list)
         self.embedding_dim = embedding_dim
 #        self.n_heads = n_heads
         self.n_heads = 1               ## DELETE THIS AFTER DEPRECATING IT!
         self.extra_internal_label_dims_list = extra_internal_label_dims_list
         self.extra_internal_label_dims_name_list = extra_internal_label_dims_name_list
         self.extra_label_dim_size_vector = []
-        self.num_labels = len(label_list)
+        self.probability_label_dim_name = probability_label_dim_name
         self.dist_fn = dist_fn
         self.bin_type = bin_type
         self.smoothing_fn = smoothing_fn
         self.smoothing_temp = smoothing_temp
 
         # Running counts (unnormalized) - initialized on first update
-        self.total_count = 0
-        self.total_scores_sum = None      # Shape: [n_bins]
-        self.label_scores_sum = None      # Shape: [num_labels, n_bins]
+#        self.total_count = 0
+#        self.total_scores_sum = None      # Shape: [n_bins]
+#        self.label_scores_sum = None      # Shape: [num_labels, n_bins]
         self.label_counts = None          # Shape: [num_labels]
+        self.granular_label_scores_sum = None     # Shape: [num_labels, *extra_internal_label_dims_list, n_bins]
+#        self.granular_label_counts = None         # Shape: [num_labels, *extra_internal_label_dims_list]
+               
+#        data_embeddings_tensor: Data embeddings [N, *extra_internal_label_dims_list, D]
+#        data_label_indices_tensor: Label indices [N], values in range [0, num_labels)
+
+
 
         # Fixed bins - pre-compute if embedding_dim is provided and bin_type is data-independent
         self.bins = None
@@ -1562,12 +1577,21 @@ class EntropyAccumulator2():
         if embedding_dim is not None and bin_type in ['unit_sphere', 'standard_normal']:
             self._precompute_bins()
 
+        ## DIAGNOSTIC
+        print("Finishing ___init__()")
+
+
+
 
     def _precompute_bins(self):
         """
         Pre-compute bins for data-independent bin types.
         Only works for 'unit_sphere' and 'standard_normal' bin types.
         """
+        ## DIAGNOSTIC
+        print("Starting _precompute_bins()")
+
+        ## Alias the hidden dimension
         d_hidden = self.embedding_dim
 
         if self.bin_type == 'unit_sphere':
@@ -1584,6 +1608,12 @@ class EntropyAccumulator2():
 
         self.bins = bins
         # Note: dtype and device will be set when first batch is processed
+
+        ## DIAGNOSTIC
+        print("Finishing _precompute_bins()")
+
+
+
 
 
     def update(self, data_tensor: torch.Tensor, index_tensor: torch.Tensor):
@@ -1629,20 +1659,332 @@ class EntropyAccumulator2():
                 smoothing_temp=self.smoothing_temp
             )
 
-        # Remove heads dimension
-        scores_no_heads = scores.squeeze(1)
 
         # Initialize accumulators on first call
-        if self.total_scores_sum is None:
-            self.total_scores_sum = torch.zeros(self.n_bins, dtype=self.dtype, device=self.device)
-            self.label_scores_sum = torch.zeros(self.num_labels, self.n_bins, dtype=self.dtype, device=self.device)
-            self.label_counts = torch.zeros(self.num_labels, dtype=torch.long, device=self.device)
+        if self.granular_label_scores_sum is None:
+#            self.total_scores_sum = torch.zeros(self.n_bins, dtype=self.dtype, device=self.device)
+            self.granular_label_scores_sum = torch.zeros(self.n_labels, *self.extra_internal_label_dims_list, self.n_bins, dtype=self.dtype, device=self.device)
+#            self.granular_label_counts = torch.zeros(self.num_labels, *self.extra_internal_label_dims_list, dtype=self.dtype, device=self.device)
+            self.label_counts = torch.zeros(self.n_labels,dtype=self.dtype, device=self.device)
 
-        # Accumulate counts
-        self.total_count += scores_no_heads.shape[0]
-        self.total_scores_sum += scores_no_heads.sum(0)
-        self.label_scores_sum.index_add_(dim=0, source=scores_no_heads, index=index_tensor)
-        self.label_counts += torch.bincount(index_tensor, minlength=self.num_labels)
+
+
+        ## ================================================
+        ## ================================================
+
+
+        ## 0. Create a tensor of the soft-binned probability distributions per granular label: 
+        ## -----------------------------------------------------------------------------------
+        ## Initialize the new tensor 
+#        scores_by_label = torch.zeros(n_labels, *tuple(tmp_scores.shape[1:]), 
+#                                    dtype=tmp_scores.dtype, device=tmp_scores.device)  
+#                            ## [n_labels, *extra_internal_label_dims_list, n_bins]
+
+
+        ## Create mask to only aggregate rows with for valid label indices
+        valid_label_mask = index_tensor >= 0
+        index_valid_flat = index_tensor[valid_label_mask]  ## [N_valid]
+        scores_valid = scores[valid_label_mask]   ## [N_valid, *extra_internal_label_dims_list, n_bins]
+
+
+
+        ## Accumulate the total number of rows processed
+#        self.total_count += index_valid_flat.shape[0]
+
+#        ## Accumulate the softbin distribution for all labels and all internal label dimensions
+#        self.total_scores_sum += scores_valid.sum(dim = list(range(scores_valid.ndim - 1)))
+
+        ## Sum the valid rows of tmp_scores into according to valid indices from index_tensor
+        self.granular_label_scores_sum.index_add_(dim=0, source=scores_valid, index=index_valid_flat)
+
+        ## Update the label counts
+        self.label_counts += torch.bincount(index_valid_flat, minlength=self.n_labels)
+
+
+
+
+        ## Expand index_tensor from shape [N_valid]
+        ## to match the shape of tmp_scores: [N_valid, *extra_internal_label_dims_list, n_bins]
+#        index_valid = index_valid_flat.view(-1, *([1] * (tmp_scores.ndim - 1)))     ## Add ones for the remaining number of dimensions
+#        index_valid = index_valid.expand(-1, *(tmp_scores.shape[1:]))  ## Expand all remaining shapes to have the same values independent of these indices!
+
+        #for _ in range(len(tmp_scores.shape[1:])):
+        #   index_valid = index_valid.unsqueeze(-1)
+        #index_valid.expand_as(tmp_scores_valid)
+
+
+
+        _ = '''
+
+        ## DIAGNOSTIC:
+
+        print()
+    #    print(f'n_labels = {n_labels}')
+        print(f'index_tensor.shape = {index_tensor.shape}')
+    #    print(f'index.shape = {index.shape}')
+        print(f'index_valid.shape = {index_valid.shape}')
+        print(f'type(tmp_scores) = {type(tmp_scores)}')
+        print(f'tmp_scores.shape = {tmp_scores.shape}')
+        print(f'tmp_scores_valid.shape = {tmp_scores_valid.shape}')
+        print(f'type(scores_by_label) = {type(scores_by_label)}')
+        print(f'scores_by_label.shape = {scores_by_label.shape}')
+        print(f'scores_by_label.sum() = {scores_by_label.sum()}')
+        print()
+
+
+        ## Scatter-add: sum the valid rows of tmp_scores into according to indices from index_tensor
+        scores_by_label.scatter_add_(0, index_valid, tmp_scores_valid) 
+
+
+        ## DIAGNOSTIC:
+        print()
+        print("Now we've computed the scores_by_label tensor")
+        print(f'scores_by_label.shape = {scores_by_label.shape}')
+        print(f'scores_by_label.sum() = {scores_by_label.sum()}')
+        print()
+
+        '''
+
+
+#        self.granular_label_scores_sum = None     # Shape: [num_labels, *extra_internal_label_dims_list, n_bins]
+#        self.granular_label_counts = None         # Shape: [num_labels, *extra_internal_label_dims_list]
+
+
+        ## ================================================
+        ## ================================================
+
+#        # Remove heads dimension
+#        scores_no_heads = scores.squeeze(1)
+
+#        # Initialize accumulators on first call
+#        if self.total_scores_sum is None:
+#            self.total_scores_sum = torch.zeros(self.n_bins, dtype=self.dtype, device=self.device)
+#            self.label_scores_sum = torch.zeros(self.num_labels, self.n_bins, dtype=self.dtype, device=self.device)
+#            self.label_counts = torch.zeros(self.num_labels, dtype=torch.long, device=self.device)
+
+
+        ## Filter the unused rows
+
+
+#        # Accumulate counts
+#        self.total_count += scores.shape[0]
+#        self.total_scores_sum += scores.sum(0)
+#        self.granular_label_scores_sum.index_add_(dim=0, source=scores, index=index_tensor)
+#        self.label_counts += torch.bincount(index_tensor, minlength=self.num_labels)
+
+
+
+    ## Label-level entropies
+    # entropy_with_contitions(given_specialized_variables=['label'], given_unspecialized_variables=['layer':[0]])
+
+    ## Population-level entropies
+    # entropy_with_contitionsgiven_unspecialized_variables=['layer'])
+
+
+#    def entropy_with_conditions(self, given_specialized_variables_list=[], 
+#                                      given_unspecialized_variables_list=[{'layer':[0,1,2,3,4,5,6]}, {'head':[0,1,2,3,4,5]}]):
+
+
+
+    def entropy_with_conditions(self, restrict_values_to_dict_of_value_lists={}, 
+                                      given_variables_list=[],  
+                                      SHOW_DIAGNOSTICS = False,
+                                      ):
+        """
+        Computes a dictionary of entropies for all specified specialized variable values, 
+        given the other specified unspecialized variables.
+
+        Here the allowed entries of given_variables_list and keys of the dictionary
+        restrict_values_to_dict_of_value_lists are given by self.label_name, the elements of
+        self.extra_internal_label_dims_name_list and dimension_index_name ('dim_index' by default), 
+        and the allowed values of restrict_values_to_dict_of_value_lists are lists of values 
+        for the given key name that we would like to include as possibilities.  These value lists 
+        can also be given (perhaps more appropriately) as sets.
+
+        INPUTS:
+            restrict_values_to_dict_of_value_lists = dict of lists or sets of allowed values for each key name.
+            given_variables_list = list of (label name) strings
+
+        """
+        ## DIAGNOSTIC:
+        if SHOW_DIAGNOSTICS:
+            print(f'restrict_values_to_dict_of_value_lists = {restrict_values_to_dict_of_value_lists}')
+            print(f'given_variables_list = {given_variables_list}')
+
+
+        ## Alias the probability dimension label name
+        dimension_index_name = self.probability_label_dim_name
+
+        ## Get the number of indices in the granular label scores sum tensor
+        shape_len = len(self.granular_label_scores_sum.shape)
+        
+        ## Make the list of labels for the granular soft-binning
+        if dimension_index_name in [self.label_name] + self.label_list:
+            raise RuntimeError(f"The name '{dimension_index_name}' already appears in the given label names!")
+        granular_tensor_label_list = [self.label_name] + self.extra_internal_label_dims_name_list + [dimension_index_name]
+
+
+        ## SANITY CHECK: Do the labels and the tensor have the same number of shape indices?
+        if shape_len != len(granular_tensor_label_list):
+            raise RuntimeError(f"shape_len = {shape_len} != len(granular_tensor_label_list) = {len(granular_tensor_label_list)}")
+
+        
+        ## Create index_selection_list -- 
+        ## which translates our restructured values information into the desired format defining the sub-population:
+        ##
+        ##     index_selection_list = ['ALL', [1,3,5], 'ALL', 'ALL', 'ALL']
+        ##
+        ##
+        index_selection_list = ['ALL'  for _ in range(shape_len)]
+        for k, v_list in restrict_values_to_dict_of_value_lists.items():
+            if k in granular_tensor_label_list:        
+                k_index = granular_tensor_label_list.index(k)
+                if k_index == 0:
+                    v_list2 = [self.label_list.index(v)  for v in v_list]
+                    index_selection_list[k_index] = list(set(v_list2))                
+                else:
+                    index_selection_list[k_index] = list(set(v_list))
+
+        ## DIAGNOSTIC:
+        if SHOW_DIAGNOSTICS:
+            print(f"index_selection_list = {index_selection_list}")
+            print()
+        
+
+        ## Create tmp_subpopulation_label_counts -- 
+        ## which determines the appropriate label counts for the sub-population
+        if index_selection_list[0] != 'ALL':
+            tmp_subpopulation_label_counts = torch.tensor([self.label_counts[x]  for x in index_selection_list[0]])
+        else:
+            tmp_subpopulation_label_counts = sum(self.label_counts)
+
+        
+        ## Create known_dim_index_list -- 
+        ## which determines the list of indices for the given known variables
+        known_dim_index_list = []
+        for var_name in given_variables_list:
+            if var_name in granular_tensor_label_list:
+                known_dim_index_list.append(granular_tensor_label_list.index(var_name))
+            
+        
+        
+        ## ===============================
+        
+        ## Filter to the sub-population specified by the value lists -- creating a copy for now:
+        ## -------------------------------------------------------------------------------------
+
+        ## Select the subset of indices we're interested in
+        filtered_granular_scores_sum = self.granular_label_scores_sum
+        for d, d_index_list in enumerate(index_selection_list):
+            if d_index_list != 'ALL':
+                #print(f'd = {d}')
+                filtered_granular_scores_sum = filtered_granular_scores_sum.index_select(dim=d, index=torch.tensor(d_index_list))
+        
+        ## Compute the entropy separately for each value of the known dimensions we specify -- using the last index as the probability dsistribution
+        #filtered_granular_entropies = entropy(filtered_granular_scores_sum)
+
+
+        ## DIAGNOSTIC
+        if SHOW_DIAGNOSTICS:
+            print()
+            print(f"self.granular_label_scores_sum.shape = {self.granular_label_scores_sum.shape}")
+            print(f"filtered_granular_scores_sum.shape = {filtered_granular_scores_sum.shape}")
+            print(f"d_index_list = {d_index_list}")
+            print(f"self.label_list = {self.label_list}")
+            print(f"self.label_counts = {self.label_counts}")
+            print(f"tmp_subpopulation_label_counts = {tmp_subpopulation_label_counts}")
+            print(f"")
+
+        
+        ## ===============================
+
+        ## Combine these to get the probability distrbutions we're interested in    
+        
+        ## A1a. Sum over the unknown dimensions to get the probability sums for known populations by value -- first do non-label indices
+        unknown_internal_dim_index_tuple = tuple([i  for i in range(shape_len-1)  if i not in known_dim_index_list and i > 0])
+        if len(unknown_internal_dim_index_tuple) > 0:
+            filtered_granular_scores_sum2 = filtered_granular_scores_sum.sum(dim=unknown_internal_dim_index_tuple, keepdim=True)
+        else:
+            filtered_granular_scores_sum2 = filtered_granular_scores_sum
+        
+        ## Get the number of internal summands
+        number_of_internal_summands = torch.tensor([filtered_granular_scores_sum.shape[i]  \
+                                                    for i in unknown_internal_dim_index_tuple  if i > 0]).prod()
+        
+        ## Divide to get the average of these probabilities over all internal populations
+        filtered_granular_scores_sum2 = filtered_granular_scores_sum2 / number_of_internal_summands    
+
+
+        ## DIAGNOSTIC
+        if SHOW_DIAGNOSTICS:
+            print()
+            print("PART I -- Sum over the unknown dimensions to get the probability sums known populations:")
+            print(f"known_dim_index_list = {known_dim_index_list}")
+            print(f"unknown_internal_dim_index_tuple = {unknown_internal_dim_index_tuple}")
+            print(f"number_of_internal_summands = {number_of_internal_summands}")
+            #print(f"filtered_granular_scores_sum2 = {filtered_granular_scores_sum2}")
+            print(f"filtered_granular_scores_sum2.shape = {filtered_granular_scores_sum2.shape}")
+            print(f"")
+
+        
+
+        ## A1b. Now sum over the unknown label dimensions, each of which may have a different label multiplicity
+        unknown_label_dim_index_tuple = tuple([i  for i in range(shape_len-1)  if i not in known_dim_index_list and i == 0])
+        if len(unknown_label_dim_index_tuple) > 0:
+            filtered_granular_scores_sum2 = filtered_granular_scores_sum2.sum(dim=unknown_label_dim_index_tuple, keepdim=True)
+        else:
+            filtered_granular_scores_sum2 = filtered_granular_scores_sum2
+        
+        ## Get the number of label summands we're including
+        number_of_selected_label_summands = tmp_subpopulation_label_counts.sum().item()
+        
+        ## Divide to get the average of these probabilities over all selected label populations
+        intermediate_probability_distributions = filtered_granular_scores_sum2 / number_of_selected_label_summands
+
+        ## DIAGNOSTIC
+        if SHOW_DIAGNOSTICS:
+            print()
+            print("PART II -- Sum over the unknown dimensions to get the probability sums known populations:")
+            print(f"unknown_internal_dim_index_tuple = {unknown_internal_dim_index_tuple}")
+            print(f"number_of_selected_label_summands = {number_of_selected_label_summands}")
+            #print(f"intermediate_probability_distributions = {intermediate_probability_distributions}")
+            print(f"intermediate_probability_distributions.shape = {intermediate_probability_distributions.shape}")
+            print(f"")
+
+        
+
+
+
+        
+        ## SANITY CHECK: Do each of these sum to 1?
+        tmp_prob_tensor_sum = intermediate_probability_distributions.sum(dim=-1)
+        #
+        ## DIAGNOSTIC
+        #print()
+        #print(f"tmp_prob_tensor_sum.shape = {tmp_prob_tensor_sum.shape}")
+        #print(f"tmp_prob_tensor_sum = {tmp_prob_tensor_sum}")
+        #    
+        if not torch.allclose(tmp_prob_tensor_sum, torch.ones_like(tmp_prob_tensor_sum)):
+    #    if (tmp_sum_tensor == 1).all().item() == False:        
+            raise RuntimeError("The intermediate probability distrubution sums are not all equal to 1!")
+
+
+
+
+        
+        ## B. Compute the entropies of these sums
+        intermediate_entropies = entropy(intermediate_probability_distributions)
+        
+        
+        ## C. Take the average value of the entropies we computed for each sub-population
+        desired_entropy = intermediate_entropies.mean().item()
+
+
+        ## Return the desired entropy
+        return desired_entropy
+    
+
+
 
 
     def compute_metrics(self, conditional_entropy_label_weighting: Literal["weighted", "uniform"] = "weighted") -> dict:
