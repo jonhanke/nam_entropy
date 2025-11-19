@@ -128,15 +128,17 @@ def soft_bin2(all_representations: torch.Tensor,
             bin_type, 
             n_bins, 
     #        n_heads,
-            extra_internal_label_dims_list = extra_internal_label_dims_list,    ## e.g. [n_layers+1, n_heads]
+#            extra_internal_label_dims_list = extra_internal_label_dims_list,    ## e.g. [n_layers+1, n_heads]
         )
     
 
     ## DIAGNOSTIC
-    print('DIAGNOSTIC in soft_bin2():')
-    print(f'all_representations.shape = {all_representations.shape}')
-    print(f'bins.shape = {bins.shape}')
-    print()
+    if show_diagnostics:
+        print()
+        print('DIAGNOSTIC in soft_bin2():')
+        print(f'all_representations.shape = {all_representations.shape}')
+        print(f'bins.shape = {bins.shape}')
+        print(f'dist_fn = {dist_fn}')
 
     ## Compute the soft-binned probability distributions 
 #    all_representations = head_reshape(all_representations, n_heads)  ## [N, D] --> [N, n_heads, D//n_heads]
@@ -1598,6 +1600,17 @@ class EntropyAccumulator2():
 
 
 
+    def __repr__(self):
+        ## Define the output string
+        out_str = "EntropyAccumulator2 instance"
+
+        ## Return the desired output string
+        return out_str
+
+
+
+
+
     def _precompute_bins(self):
         """
         Pre-compute bins for data-independent bin types.
@@ -1631,7 +1644,7 @@ class EntropyAccumulator2():
 
 
 
-    def update(self, data_tensor: torch.Tensor, batch_index_tensor: torch.Tensor, batch_label_list: list):
+    def update(self, data_tensor: torch.Tensor, batch_index_tensor: torch.Tensor, batch_label_list: list, SHOW_DIAGNOSTICS=False):
         """
         Add a new batch of data to the accumulator.
 
@@ -1669,6 +1682,24 @@ class EntropyAccumulator2():
         if self.dtype is None:
             self.dtype = data_tensor.dtype
             self.device = data_tensor.device
+
+
+        ## DIAGNOSTIC
+        if SHOW_DIAGNOSTICS:
+            print()
+            print("DIAGNOSTIC:")
+            print("-----------")
+            print(f"data_tensor.shape = {data_tensor.shape}")
+            print(f"self.n_bins = {self.n_bins}")
+            print(f"self.extra_internal_label_dims_list = {self.extra_internal_label_dims_list}")
+            print(f"self.dist_fn = {self.dist_fn}")
+            print(f"self.bin_type = {self.bin_type}")
+            print(f"self.smoothing_fn = {self.smoothing_fn}")
+            print(f"self.smoothing_temp = {self.smoothing_temp}")
+            #print(f" = {}")
+            #print(f" = {}")
+
+
 
         # Compute soft-bin scores using existing or pre-computed bins
         if self.bins is None:
@@ -2207,7 +2238,8 @@ def compute_all_entropy_measures2(
         smoothing_fn: str = 'None',
         smoothing_temp: float = 1.0,
         conditional_entropy_label_weighting: Literal["weighted", "uniform"] = "weighted",
-        online_bins: Optional[torch.Tensor] = None
+        online_bins: Optional[torch.Tensor] = None, 
+        SHOW_DIAGNOSTICS = False,
     ) -> dict:
     """
     Run the soft-binning and related entropy calculations on the given labelled emdeddings data.
@@ -2263,18 +2295,19 @@ def compute_all_entropy_measures2(
 
 
     ## DIAGNOSTIC:
-    print()
-    print(f'n_labels = {n_labels}')
-    print(f'index_tensor.shape = {index_tensor.shape}')
-    print(f'type(tmp_scores) = {type(tmp_scores)}')
-    print(f'tmp_scores.shape = {tmp_scores.shape}')
-    print(f'tmp_scores.shape[1:] = {tmp_scores.shape[1:]}')
-    #print(f'type(tmp_scores.shape[1:]) = {type(tmp_scores.shape[1:])}')
-    #print(f'tuple(tmp_scores.shape[1:]) = {tuple(tmp_scores.shape[1:])}')
-    #print(f'type(tuple(tmp_scores.shape[1:])) = {type(tuple(tmp_scores.shape[1:]))}')
-    #print(f'tuple(tmp_scores.shape[1:])[0] = {tuple(tmp_scores.shape[1:])[0]}')
-    #print(f'type(tuple(tmp_scores.shape[1:])[0]) = {type(tuple(tmp_scores.shape[1:])[0])}')
-    print()
+    if SHOW_DIAGNOSTICS:
+        print()
+        print(f'n_labels = {n_labels}')
+        print(f'index_tensor.shape = {index_tensor.shape}')
+        print(f'type(tmp_scores) = {type(tmp_scores)}')
+        print(f'tmp_scores.shape = {tmp_scores.shape}')
+        print(f'tmp_scores.shape[1:] = {tmp_scores.shape[1:]}')
+        #print(f'type(tmp_scores.shape[1:]) = {type(tmp_scores.shape[1:])}')
+        #print(f'tuple(tmp_scores.shape[1:]) = {tuple(tmp_scores.shape[1:])}')
+        #print(f'type(tuple(tmp_scores.shape[1:])) = {type(tuple(tmp_scores.shape[1:]))}')
+        #print(f'tuple(tmp_scores.shape[1:])[0] = {tuple(tmp_scores.shape[1:])[0]}')
+        #print(f'type(tuple(tmp_scores.shape[1:])[0]) = {type(tuple(tmp_scores.shape[1:])[0])}')
+        print()
 
 
     ## 0. Create a tensor of the soft-binned probability distributions per granular label: 
@@ -2302,18 +2335,19 @@ def compute_all_entropy_measures2(
 
 
     ## DIAGNOSTIC:
-    print()
-#    print(f'n_labels = {n_labels}')
-    print(f'index_tensor.shape = {index_tensor.shape}')
-#    print(f'index.shape = {index.shape}')
-    print(f'index_valid.shape = {index_valid.shape}')
-    print(f'type(tmp_scores) = {type(tmp_scores)}')
-    print(f'tmp_scores.shape = {tmp_scores.shape}')
-    print(f'tmp_scores_valid.shape = {tmp_scores_valid.shape}')
-    print(f'type(scores_by_label) = {type(scores_by_label)}')
-    print(f'scores_by_label.shape = {scores_by_label.shape}')
-    print(f'scores_by_label.sum() = {scores_by_label.sum()}')
-    print()
+    if SHOW_DIAGNOSTICS:
+        print()
+    #    print(f'n_labels = {n_labels}')
+        print(f'index_tensor.shape = {index_tensor.shape}')
+    #    print(f'index.shape = {index.shape}')
+        print(f'index_valid.shape = {index_valid.shape}')
+        print(f'type(tmp_scores) = {type(tmp_scores)}')
+        print(f'tmp_scores.shape = {tmp_scores.shape}')
+        print(f'tmp_scores_valid.shape = {tmp_scores_valid.shape}')
+        print(f'type(scores_by_label) = {type(scores_by_label)}')
+        print(f'scores_by_label.shape = {scores_by_label.shape}')
+        print(f'scores_by_label.sum() = {scores_by_label.sum()}')
+        print()
 
 
     ## Scatter-add: sum the valid rows of tmp_scores into according to indices from index_tensor
@@ -2321,11 +2355,12 @@ def compute_all_entropy_measures2(
 
 
     ## DIAGNOSTIC:
-    print()
-    print("Now we've computed the scores_by_label tensor")
-    print(f'scores_by_label.shape = {scores_by_label.shape}')
-    print(f'scores_by_label.sum() = {scores_by_label.sum()}')
-    print()
+    if SHOW_DIAGNOSTICS:
+        print()
+        print("Now we've computed the scores_by_label tensor")
+        print(f'scores_by_label.shape = {scores_by_label.shape}')
+        print(f'scores_by_label.sum() = {scores_by_label.sum()}')
+        print()
 
 
     ## SANITY CHECK:  THE FINAL DIMENSION SUMS SHOULD BE THE NUMBER OF DATA POINTS WITH THAT LABEL! =)
