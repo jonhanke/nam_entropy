@@ -73,12 +73,36 @@ class TokenizerConfig(BaseModel):
 class TrainingConfig(BaseModel):
     """Configuration for training/run parameters."""
     
+    # Required training parameters
     seed: int = Field(default=496, ge=0)
-    n_batches: int = Field(default=10, gt=0, description="How many batches of data to analyze")
-    batch_size: int = Field(default=256, gt=0, description="How many sentences per batch")
+    n_batches: int = Field(default=10, gt=0)
+    batch_size: int = Field(default=256, gt=0)
     device: str = 'cpu'
     saved_results_path: str = 'results'
-
+    
+    # Optional DataLoader parameters (None = use DataLoader's default)
+    shuffle: Optional[bool] = Field(default=True, description="Shuffle data")
+    num_workers: Optional[int] = Field(default=None, description="Number of workers (None = DataLoader default)")
+    pin_memory: Optional[bool] = Field(default=None, description="Pin memory (None = DataLoader default)")
+    drop_last: Optional[bool] = Field(default=None, description="Drop last batch (None = DataLoader default)")
+    prefetch_factor: Optional[int] = Field(default=None, description="Prefetch factor (requires num_workers > 0)")
+    persistent_workers: Optional[bool] = Field(default=None, description="Keep workers alive")
+    
+    @property
+    def dataloader_params(self) -> dict:
+        """Get DataLoader parameters, excluding None values."""
+        params = {
+            'batch_size': self.batch_size,
+            'shuffle': self.shuffle,
+            'num_workers': self.num_workers,
+            'pin_memory': self.pin_memory,
+            'drop_last': self.drop_last,
+            'prefetch_factor': self.prefetch_factor,
+            'persistent_workers': self.persistent_workers,
+        }
+        
+        # Filter out None values - let DataLoader use its defaults
+        return {k: v for k, v in params.items() if v is not None}
 
 
 class EntropyEstimatorConfig(BaseModel):
@@ -112,11 +136,11 @@ class EntropyEstimatorConfig(BaseModel):
         description="Name for probability label dimension"
     )
     
-#    # Embedding configuration
-#    embedding_dim: Optional[int] = Field(
-#        default=None,
-#        description="Dimension of embeddings (inferred if None)"
-#    )
+    # Embedding configuration
+    embedding_dim: Optional[int] = Field(
+        default=None,
+        description="Dimension of embeddings (inferred if None)"
+    )
     
     # Extra label dimensions
     extra_internal_label_dims_list: List = Field(
@@ -141,7 +165,7 @@ class ModelAnalyzerConfig(BaseModel):
     model: ModelConfig = Field(default_factory=ModelConfig)
     tokenizer: TokenizerConfig = Field(default_factory=TokenizerConfig)
     training: TrainingConfig = Field(default_factory=TrainingConfig)
-    estimator: EntropyEstimatorConfig = Field(default_factory=EntropyEstimatorConfig)
+    entropy_estimator: EntropyEstimatorConfig = Field(default_factory=EntropyEstimatorConfig)
     
     @classmethod
     def from_yaml(cls, path: str) -> 'ModelAnalyzerConfig':
