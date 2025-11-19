@@ -26,6 +26,8 @@ from sklearn.cluster import KMeans
 
 from typing import Optional, Literal, Tuple
 
+from .model_config import EntropyEstimatorConfig
+
 
 
 ## ==========================================================================
@@ -1510,6 +1512,7 @@ class EntropyAccumulator2():
         >>> metrics = acc1.compute_metrics()
     """
 
+    _ = '''
     def __init__(self, n_bins: int, label_name: str = 'label', 
                  initial_label_list: list = [], 
                  embedding_dim: Optional[int] = None,
@@ -1520,7 +1523,7 @@ class EntropyAccumulator2():
                  probability_label_dim_name = 'probability_label',
                  dist_fn: str = 'euclidean', bin_type: str = 'uniform',
                  smoothing_fn: str = 'None', smoothing_temp: float = 1.0):
-        """
+       """
         Initialize the entropy accumulator.
 
         Args:
@@ -1537,36 +1540,45 @@ class EntropyAccumulator2():
             smoothing_fn: Smoothing function (default: 'None')
             smoothing_temp: Temperature for smoothing (default: 1.0)
         """
+    '''
+
+    
+    def __init__(self, config: Optional[EntropyEstimatorConfig] = None):
+ 
+        """
+        Initialize the entropy accumulator.
+
+        Args:
+            config: Configuration for the estimator. If None, uses defaults.
+        """
         ## DIAGNOSTIC
         print("Starting ___init__()")
 
 
-        self.n_bins = n_bins
-        self.label_name = label_name
-        self.label_list = initial_label_list
+        # Use provided config or create default
+        self.config = config or EntropyEstimatorConfig()
+        
+        # Extract all parameters from config
+        self.n_bins = self.config.n_bins
+        self.n_heads = self.config.n_heads
+        self.bin_type = self.config.bin_type
+        self.dist_fn = self.config.dist_fn
+        self.smoothing_fn = self.config.smoothing_fn
+        self.smoothing_temp = self.config.smoothing_temp
+        
+        self.label_name = self.config.label_name
+        self.label_list = self.config.initial_label_list
         self.n_labels = len(self.label_list)
-        self.embedding_dim = embedding_dim
-#        self.n_heads = n_heads
-        self.n_heads = 1               ## DELETE THIS AFTER DEPRECATING IT!
-        self.extra_internal_label_dims_list = extra_internal_label_dims_list
-        self.extra_internal_label_dims_name_list = extra_internal_label_dims_name_list
-        self.extra_label_dim_size_vector = []
-        self.probability_label_dim_name = probability_label_dim_name
-        self.dist_fn = dist_fn
-        self.bin_type = bin_type
-        self.smoothing_fn = smoothing_fn
-        self.smoothing_temp = smoothing_temp
+        self.probability_label_dim_name = self.config.probability_label_dim_name
+        
+        self.embedding_dim = self.config.embedding_dim
+        self.extra_internal_label_dims_list = self.config.extra_internal_label_dims_list
+        self.extra_internal_label_dims_name_list = self.config.extra_internal_label_dims_name_list
+     
 
         # Running counts (unnormalized) - initialized on first update
-#        self.total_count = 0
-#        self.total_scores_sum = None      # Shape: [n_bins]
-#        self.label_scores_sum = None      # Shape: [num_labels, n_bins]
         self.label_counts = None          # Shape: [num_labels]
         self.granular_label_scores_sum = None     # Shape: [num_labels, *extra_internal_label_dims_list, n_bins]
-#        self.granular_label_counts = None         # Shape: [num_labels, *extra_internal_label_dims_list]
-               
-#        data_embeddings_tensor: Data embeddings [N, *extra_internal_label_dims_list, D]
-#        data_label_indices_tensor: Label indices [N], values in range [0, num_labels)
 
 
 
@@ -1575,8 +1587,9 @@ class EntropyAccumulator2():
         self.dtype = None
         self.device = None
 
+
         # Pre-compute bins if possible
-        if embedding_dim is not None and bin_type in ['unit_sphere', 'standard_normal']:
+        if self.embedding_dim is not None and self.bin_type in ['unit_sphere', 'standard_normal']:
             self._precompute_bins()
 
         ## DIAGNOSTIC

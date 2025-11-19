@@ -80,15 +80,57 @@ class TrainingConfig(BaseModel):
     saved_results_path: str = 'results'
 
 
-class EstimatorConfig(BaseModel):
-    """Configuration for estimator/soft-binning parameters."""
+
+class EntropyEstimatorConfig(BaseModel):
+    """Configuration for entropy estimator/soft-binning parameters."""
     
-    n_bins: int = Field(default=1000, gt=0)
-    n_heads: int = Field(default=1, gt=0)
-    bin_type: Literal['unit_sphere'] = 'unit_sphere'
-    dist_fn: Literal['cosine', 'euclidean'] = 'cosine'
-    smoothing_fn: Literal['softmax'] = 'softmax'
-    smoothing_temp: float = Field(default=1.0, gt=0)
+    # Binning/estimation parameters
+    n_bins: int = Field(default=1000, gt=0, description="Number of bins for histogram")
+    n_heads: int = Field(default=1, gt=0, description="Number of attention heads")
+    bin_type: Literal['unit_sphere', 'uniform'] = Field(
+        default='uniform',
+        description="Type of binning: 'unit_sphere' or 'uniform'"
+    )
+    dist_fn: Literal['cosine', 'euclidean'] = Field(
+        default='euclidean',
+        description="Distance function for binning"
+    )
+    smoothing_fn: Literal['softmax', 'None'] = Field(
+        default='None',
+        description="Smoothing function to apply"
+    )
+    smoothing_temp: float = Field(default=1.0, gt=0, description="Temperature for smoothing")
+    
+    # Label configuration
+    label_name: str = Field(default='label', description="Name of the label dimension")
+    initial_label_list: List[str] = Field(
+        default_factory=list,
+        description="Initial list of labels (to be added to by the update() routine"
+    )
+    probability_label_dim_name: str = Field(
+        default='probability_label',
+        description="Name for probability label dimension"
+    )
+    
+#    # Embedding configuration
+#    embedding_dim: Optional[int] = Field(
+#        default=None,
+#        description="Dimension of embeddings (inferred if None)"
+#    )
+    
+    # Extra label dimensions
+    extra_internal_label_dims_list: List = Field(
+        default_factory=list,
+        description="Additional label dimension values from internal model dimensions"
+    )
+    extra_internal_label_dims_name_list: List[str] = Field(
+        default_factory=list,
+        description="Names for additional label dimensions from internal model dimensions"
+    )
+    
+    class Config:
+        arbitrary_types_allowed = True
+
 
 
 #class Config(BaseModel):
@@ -99,7 +141,7 @@ class ModelAnalyzerConfig(BaseModel):
     model: ModelConfig = Field(default_factory=ModelConfig)
     tokenizer: TokenizerConfig = Field(default_factory=TokenizerConfig)
     training: TrainingConfig = Field(default_factory=TrainingConfig)
-    estimator: EstimatorConfig = Field(default_factory=EstimatorConfig)
+    estimator: EntropyEstimatorConfig = Field(default_factory=EntropyEstimatorConfig)
     
     @classmethod
     def from_yaml(cls, path: str) -> 'ModelAnalyzerConfig':

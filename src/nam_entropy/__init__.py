@@ -21,5 +21,5 @@ from .bin_distribution_plots import plot_tensor_bars, plot_unit_circle_scatter, 
                                     get_label_colors, plot_2d_scatter_with_bins, plot_1d_scatter_labeled
 
 ## Import the Model Analyzer and its configuration 
-from .model_config import DatasetConfig, ModelConfig, TokenizerConfig, TrainingConfig, EstimatorConfig, ModelAnalyzerConfig
-#from .model_analyzer import ModelAnalyzer
+from .model_config import DatasetConfig, ModelConfig, TokenizerConfig, TrainingConfig, EntropyEstimatorConfig, ModelAnalyzerConfig
+from .model_analyzer import ModelAnalyzer
