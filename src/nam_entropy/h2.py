@@ -1510,7 +1510,9 @@ class EntropyAccumulator2():
         >>> metrics = acc1.compute_metrics()
     """
 
-    def __init__(self, n_bins: int, label_name: str, label_list: list, embedding_dim: Optional[int] = None,
+    def __init__(self, n_bins: int, label_name: str = 'label', 
+                 initial_label_list: list = [], 
+                 embedding_dim: Optional[int] = None,
 #                 n_heads: int = 1, 
                  extra_internal_label_dims_list = [],
                  extra_internal_label_dims_name_list = [],
@@ -1524,7 +1526,7 @@ class EntropyAccumulator2():
         Args:
             n_bins: Number of bins for soft-binning
             label_name: String for the name of the label
-            label_list: List of unique label names
+            initial_label_list: List of unique label names (which can be added to by our update() routine)
             embedding_dim: Dimension of data embeddings. Required for data-independent bin types
                           like 'unit_sphere', 'standard_normal'. Optional for data-dependent
                           bin types like 'uniform'. If provided, bins are pre-computed.
@@ -1541,8 +1543,8 @@ class EntropyAccumulator2():
 
         self.n_bins = n_bins
         self.label_name = label_name
-        self.label_list = label_list
-        self.n_labels = len(label_list)
+        self.label_list = initial_label_list
+        self.n_labels = len(self.label_list)
         self.embedding_dim = embedding_dim
 #        self.n_heads = n_heads
         self.n_heads = 1               ## DELETE THIS AFTER DEPRECATING IT!
@@ -1616,7 +1618,7 @@ class EntropyAccumulator2():
 
 
 
-    def update(self, data_tensor: torch.Tensor, index_tensor: torch.Tensor):
+    def update(self, data_tensor: torch.Tensor, batch_index_tensor: torch.Tensor, batch_label_list: list):
         """
         Add a new batch of data to the accumulator.
 
@@ -1624,6 +1626,32 @@ class EntropyAccumulator2():
             data_tensor: Data embeddings [N, *extra_internal_label_dims_list, D]
             index_tensor: Label indices [N] -- with values in range [0, num_labels)
         """
+        ## SANITY CHECK: Are the batch labels unique?
+        if len(batch_label_list) != len(set(batch_label_list)):
+            raise RuntimeError(f"The labels in batch_label_list = {batch_label_list} are not unique!")
+
+        ## Define the new accumulator label list  
+        new_accumulator_label_list = self.label_list + [x  for x in batch_label_list  if x not in self.label_list]
+
+        ## Define a mapping from the given batch label list to the label list for the accumulator 
+        batch_label_index_to_accumulator_label_index_dict = {i: new_accumulator_label_list.index(label_i)  
+                                                               for i, label_i in enumerate(batch_label_list)}
+
+        ## Create an associated lookup tensor
+        max_key = max(batch_label_index_to_accumulator_label_index_dict.keys())
+        lookup = torch.zeros(max_key + 1, dtype=batch_index_tensor.dtype)
+        for k, v in batch_label_index_to_accumulator_label_index_dict.items():
+            lookup[k] = v        
+
+        ## Make a new index_tensor for the accumulator label indices -- apply the mapping via indexing
+        index_tensor = lookup[batch_index_tensor]
+
+        ## Update the label list for the accumulator
+        self.label_list = new_accumulator_label_list
+        self.n_labels = len(new_accumulator_label_list)
+
+
+
         # Initialize dtype and device on first update
         if self.dtype is None:
             self.dtype = data_tensor.dtype
