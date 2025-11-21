@@ -1643,7 +1643,7 @@ class EntropyAccumulator2():
 
 
 
-
+    @torch.no_grad()
     def update(self, data_tensor: torch.Tensor, batch_index_tensor: torch.Tensor, batch_label_list: list, SHOW_DIAGNOSTICS=False):
         """
         Add a new batch of data to the accumulator.
@@ -1698,6 +1698,7 @@ class EntropyAccumulator2():
             print(f"self.smoothing_temp = {self.smoothing_temp}")
             #print(f" = {}")
             #print(f" = {}")
+            print()
 
 
 
@@ -1789,7 +1790,6 @@ class EntropyAccumulator2():
         _ = '''
 
         ## DIAGNOSTIC:
-
         print()
     #    print(f'n_labels = {n_labels}')
         print(f'index_tensor.shape = {index_tensor.shape}')
@@ -1857,7 +1857,7 @@ class EntropyAccumulator2():
 #                                      given_unspecialized_variables_list=[{'layer':[0,1,2,3,4,5,6]}, {'head':[0,1,2,3,4,5]}]):
 
 
-
+    @torch.no_grad()
     def entropy_with_conditions(self, restrict_values_to_dict_of_value_lists={}, 
                                       given_variables_list=[],  
                                       SHOW_DIAGNOSTICS = False,
