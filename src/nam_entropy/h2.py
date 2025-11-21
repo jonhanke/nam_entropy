@@ -36,7 +36,7 @@ from .model_config import EntropyEstimatorConfig
 
 
 
-
+@torch.no_grad()
 def soft_bin2(all_representations: torch.Tensor,
              n_bins: int,
              bins: Optional[torch.Tensor] = None,
@@ -150,7 +150,7 @@ def soft_bin2(all_representations: torch.Tensor,
     return scores, bins
 
 
-
+@torch.no_grad()
 def soft_bin(all_representations: torch.Tensor,
              n_bins: int,
              bins: Optional[torch.Tensor] = None,
@@ -239,6 +239,7 @@ def soft_bin(all_representations: torch.Tensor,
 
 
 
+@torch.no_grad()
 def head_reshape(all_representations: torch.Tensor, n_heads:int) -> torch.Tensor:
     """
     Reshapes representations for multi-head attention-style processing.
@@ -261,6 +262,7 @@ def head_reshape(all_representations: torch.Tensor, n_heads:int) -> torch.Tensor
 
 
 
+@torch.no_grad()
 def get_bins(all_representations:torch.Tensor, 
              bin_type:str, n_bins:int, n_heads:int) -> torch.Tensor:
     """
@@ -356,6 +358,7 @@ def get_bins(all_representations:torch.Tensor,
 ## These should replace the get_bins2() routine, not use any internal label dimensions, and be cleaner/simpler! =)
 ##
 
+@torch.no_grad()
 def get_spherical_bins(n_bins:int, ambient_space_dimension:int, device:torch.device, dtype:torch.dtype) -> torch.Tensor:
     """
     Generates a tensor whose rows are the desired bin locations 
@@ -373,6 +376,7 @@ def get_spherical_bins(n_bins:int, ambient_space_dimension:int, device:torch.dev
 
 
 
+@torch.no_grad()
 def get_bins2(all_representations:torch.Tensor, 
              bin_type:str, n_bins:int) -> torch.Tensor:
     """
@@ -468,6 +472,7 @@ def get_bins2(all_representations:torch.Tensor,
 
 
 
+@torch.no_grad()
 def distance_scores(all_representations: torch.Tensor, 
                     bins: torch.Tensor, distance_fn: str) -> torch.Tensor:
     """
@@ -606,6 +611,7 @@ def distance_scores(all_representations: torch.Tensor,
 ##       is a [n_samples, *structural_label_dims_list; n_bins] tensor.
 
 
+@torch.no_grad()
 def distance_scores2(all_representations: torch.Tensor, 
                     bins: torch.Tensor, distance_fn: str) -> torch.Tensor:
     """
@@ -745,6 +751,7 @@ def distance_scores2(all_representations: torch.Tensor,
 
 ## NOTE: This applies smoothing based on normalizations applied in the last dimension!
 
+@torch.no_grad()
 def smoothing(scores: torch.Tensor, temp: float, smoothing_fn: str) -> torch.Tensor:
     """
     Applies smoothing function to convert distance scores to probabilities.
@@ -787,6 +794,7 @@ def smoothing(scores: torch.Tensor, temp: float, smoothing_fn: str) -> torch.Ten
 
 
 
+@torch.no_grad()
 def cluster(all_representations: torch.Tensor,
             n_bins: int,
             just_bins: bool = True
@@ -827,6 +835,7 @@ def cluster(all_representations: torch.Tensor,
 ## ==========================================================================
 
 
+@torch.no_grad()
 @torch.jit.script
 def unit_cube_bins(start: torch.Tensor, stop: torch.Tensor, n_bins: int) -> torch.Tensor:
     """
@@ -870,6 +879,7 @@ def unit_cube_bins(start: torch.Tensor, stop: torch.Tensor, n_bins: int) -> torc
 
 
 
+@torch.no_grad()
 def interpolate_tensors(minns: torch.Tensor, maxxes: torch.Tensor, steps: int) -> torch.Tensor:
     """
     Create a 2D tensor of coordinate-wise linear interpolations between min and max values.
@@ -922,6 +932,7 @@ def interpolate_tensors(minns: torch.Tensor, maxxes: torch.Tensor, steps: int) -
 ## ==========================================================================
 
 
+@torch.no_grad()
 def multi_js_divergence(classes: torch.Tensor, p_class: torch.Tensor, 
                         max_normalization: str = "weighted") -> torch.Tensor:
     """
@@ -979,6 +990,7 @@ def multi_js_divergence(classes: torch.Tensor, p_class: torch.Tensor,
 
 
 
+@torch.no_grad()
 def js_divergence(p: torch.Tensor, q: torch.Tensor, 
                   eps: float = 1e-9, use_xlogy: bool = True,
                   normalization: str = None) -> torch.Tensor:
@@ -1040,6 +1052,7 @@ def js_divergence(p: torch.Tensor, q: torch.Tensor,
 
 
 
+@torch.no_grad()
 def kl_divergence(p: torch.Tensor, q: torch.Tensor, 
                   eps: float = 1e-9, use_xlogy: bool = True, 
                   normalization: str = None) -> torch.Tensor:
@@ -1087,6 +1100,7 @@ def kl_divergence(p: torch.Tensor, q: torch.Tensor,
 
 
 
+@torch.no_grad()
 @torch.compile
 def normalize_by_scaling(dist: torch.Tensor, eps: float = 1e-9) -> torch.Tensor:
     """
@@ -1110,6 +1124,7 @@ def normalize_by_scaling(dist: torch.Tensor, eps: float = 1e-9) -> torch.Tensor:
 
 
 
+@torch.no_grad()
 def normalize_by_softmax(dist: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
     """
     Normalizes distributions to sum to 1 along the last dimension by 
@@ -1128,6 +1143,7 @@ def normalize_by_softmax(dist: torch.Tensor, temperature: float = 1.0) -> torch.
 
 
 
+@torch.no_grad()
 def entropy(dist: torch.Tensor, normalization: str = None) -> float:
     """
     Computes Shannon entropy of distributions.
@@ -1251,6 +1267,8 @@ class EntropyAccumulator:
         if embedding_dim is not None and bin_type in ['unit_sphere', 'standard_normal']:
             self._precompute_bins()
 
+
+    @torch.no_grad()
     def _precompute_bins(self):
         """
         Pre-compute bins for data-independent bin types.
@@ -1272,6 +1290,7 @@ class EntropyAccumulator:
         self.bins = bins
         # Note: dtype and device will be set when first batch is processed
 
+    @torch.no_grad()
     def update(self, data_tensor: torch.Tensor, index_tensor: torch.Tensor):
         """
         Add a new batch of data to the accumulator.
@@ -1328,6 +1347,7 @@ class EntropyAccumulator:
         self.label_scores_sum.index_add_(dim=0, source=scores_no_heads, index=index_tensor)
         self.label_counts += torch.bincount(index_tensor, minlength=self.num_labels)
 
+    @torch.no_grad()
     def compute_metrics(self, conditional_entropy_label_weighting: Literal["weighted", "uniform"] = "weighted") -> dict:
         """
         Compute current entropy metrics from accumulated state.
@@ -1387,6 +1407,7 @@ class EntropyAccumulator:
             }
         }
 
+    @torch.no_grad()
     def merge(self, other: 'EntropyAccumulator'):
         """
         Merge state from another accumulator for distributed computation.
@@ -1611,6 +1632,7 @@ class EntropyAccumulator2():
 
 
 
+    @torch.no_grad()
     def _precompute_bins(self):
         """
         Pre-compute bins for data-independent bin types.
@@ -2058,7 +2080,7 @@ class EntropyAccumulator2():
 
 
 
-
+    @torch.no_grad()
     def compute_metrics(self, conditional_entropy_label_weighting: Literal["weighted", "uniform"] = "weighted") -> dict:
         """
         Compute current entropy metrics from accumulated state.
@@ -2119,6 +2141,7 @@ class EntropyAccumulator2():
         }
 
 
+    @torch.no_grad()
     def merge(self, other: 'EntropyAccumulator'):
         """
         Merge state from another accumulator for distributed computation.
@@ -2225,6 +2248,7 @@ class EntropyAccumulator2():
 
 ## TO DO: REVISIT THIS TO COMPUTE THE CONDITIONAL ENTROPIES FOR EACH (SUB-)POPULATION!
 
+@torch.no_grad()
 def compute_all_entropy_measures2(
         data_embeddings_tensor: torch.Tensor,
         data_label_indices_tensor: torch.Tensor,

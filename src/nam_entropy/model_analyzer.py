@@ -298,6 +298,7 @@ class ModelAnalyzer(object):
 
     ## Helper function to get the batches -- and enhance it with the 'tokenized' and 'tokens' information!
 #    def get_batch(self, batch, label_str_to_int_mapping_dict=label_str_to_int_mapping_dict):
+    @torch.no_grad()
     def get_batch(self, batch):
 
         ## Get the sentence and language information from the dataset
@@ -421,6 +422,7 @@ class ModelAnalyzer(object):
 
 
 
+    @torch.no_grad()
     def process_batch(self, batch):
         """
         Extract and reshape hidden states from a batch.
@@ -459,11 +461,32 @@ class ModelAnalyzer(object):
         for tmp_batch_num, batch in enumerate(dataloader):
             data_tensor, index_tensor, batch_label_list = self.process_batch(batch)
 
+            ## REPORTING
+            print(f"Starting to process batch #{tmp_batch_num + 1}")
+
+            ## DIAGNOSTIC
+            print()
+            print(f" data_tensor.shape = {data_tensor.shape}")
+            print(f" index_tensor.shape = {index_tensor.shape}")
+            print(f" batch_label_list = {batch_label_list}")
+            #print(f" data_tensor = {data_tensor}")
+            #print(f" index_tensor = {index_tensor}")
+            #print(f" batch_label_list = {batch_label_list}")
+            #print(f" = {}")
+            print()
+
+
             ## Process each batch of data
-            entropy_accumulator.update(data_tensor=data_tensor, batch_index_tensor=index_tensor, batch_label_list=batch_label_list)
+            entropy_accumulator.update(data_tensor=data_tensor, 
+                                       batch_index_tensor=index_tensor, 
+                                       batch_label_list=batch_label_list,
+                                       SHOW_DIAGNOSTICS=True)
 
             ## REPORTING
             print(f"Processed batch #{tmp_batch_num + 1}")
+            print()
+            print(" = " * 20)
+            print()
 
 
         ## REPORTING -- Analysis Completed 
