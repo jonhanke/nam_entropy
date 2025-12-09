@@ -20,6 +20,17 @@ from .integrated_distribution_2d_sampler import SimpleDistribution2DSampler, Dis
 from .bin_distribution_plots import plot_tensor_bars, plot_unit_circle_scatter, compute_non_overlapping_ray_radii, \
                                     get_label_colors, plot_2d_scatter_with_bins, plot_1d_scatter_labeled
 
-## Import the Model Analyzer and its configuration 
+## Import the Model Analyzer and its configuration
 from .model_config import DatasetConfig, ModelConfig, TokenizerConfig, TrainingConfig, EntropyEstimatorConfig, ModelAnalyzerConfig
 from .model_analyzer import ModelAnalyzer
+
+## Import validation utilities
+from .validation import (
+    validate_numerical_integrity,
+    validate_shape_consistency,
+    validate_label_counts_are_integers,
+    validate_probability_distributions,
+    validate_entropy_bounds,
+    validate_information_inequalities,
+    validate_all,
+)
