@@ -1671,28 +1671,58 @@ class EntropyAccumulator2():
         Add a new batch of data to the accumulator.
 
         Args:
-            data_tensor: Data embeddings [N, *extra_internal_label_dims_list, D]
-            index_tensor: Label indices [N] -- with values in range [0, num_labels)
+            data_tensor (torch.Tensor): Data embeddings of shape [N, *extra_internal_label_dims_list, D]
+                where N is the number of samples, D is the embedding dimension, and
+                extra_internal_label_dims_list contains any intermediate dimensions (e.g., layers, heads).
+                Dtype should be float32 or float64.
+
+            batch_index_tensor (torch.Tensor): Label indices of shape [N] with integer dtype (e.g., torch.long).
+                Expected values:
+                  - Non-negative integers in the contiguous range [0, len(batch_label_list)-1] for valid samples.
+                    Each index i maps to the label at batch_label_list[i].
+                  - -1 (or any negative value) for samples that should be ignored/masked
+                    (e.g., padding tokens). These masked samples will be excluded from accumulation.
+                Note: The valid indices should form a contiguous range starting from 0. All indices
+                in [0, len(batch_label_list)-1] must have a corresponding entry in batch_label_list,
+                though not every index needs to appear in batch_index_tensor.
+
+            batch_label_list (list): List of unique label names/identifiers for this batch.
+                The i-th element is the label name corresponding to index i in batch_index_tensor.
+                Typically constructed as list(set(labels_in_batch)), with indices assigned via enumerate().
+                Labels not previously seen will be added to the accumulator's global label list.
+
+            SHOW_DIAGNOSTICS (bool): If True, print diagnostic information during processing.
+
+        Note:
+            Masking support: Negative values in batch_index_tensor (typically -1) indicate
+            samples to ignore. This is useful for excluding padding tokens or other invalid
+            positions from the entropy accumulation. These samples are filtered out before
+            updating granular_label_scores_sum and label_counts.
         """
         ## SANITY CHECK: Are the batch labels unique?
         if len(batch_label_list) != len(set(batch_label_list)):
             raise RuntimeError(f"The labels in batch_label_list = {batch_label_list} are not unique!")
 
-        ## Define the new accumulator label list  
+        ## Define the new accumulator label list
         new_accumulator_label_list = self.label_list + [x  for x in batch_label_list  if x not in self.label_list]
 
-        ## Define a mapping from the given batch label list to the label list for the accumulator 
-        batch_label_index_to_accumulator_label_index_dict = {i: new_accumulator_label_list.index(label_i)  
+        ## Define a mapping from the given batch label list to the label list for the accumulator
+        batch_label_index_to_accumulator_label_index_dict = {i: new_accumulator_label_list.index(label_i)
                                                                for i, label_i in enumerate(batch_label_list)}
 
         ## Create an associated lookup tensor
         max_key = max(batch_label_index_to_accumulator_label_index_dict.keys())
         lookup = torch.zeros(max_key + 1, dtype=batch_index_tensor.dtype)
         for k, v in batch_label_index_to_accumulator_label_index_dict.items():
-            lookup[k] = v        
+            lookup[k] = v
 
-        ## Make a new index_tensor for the accumulator label indices -- apply the mapping via indexing
-        index_tensor = lookup[batch_index_tensor]
+        ## Make a new index_tensor for the accumulator label indices -- apply the mapping via indexing.
+        ## NOTE: We must handle negative indices (e.g., -1 for padding/ignored tokens) carefully.
+        ## PyTorch negative indexing would wrap around (lookup[-1] = lookup[max_key]), corrupting the mapping.
+        ## Instead, we only remap valid (non-negative) indices and preserve negative values as-is.
+        valid_batch_mask = batch_index_tensor >= 0
+        index_tensor = torch.full_like(batch_index_tensor, -1)  # Initialize with -1 (invalid/masked)
+        index_tensor[valid_batch_mask] = lookup[batch_index_tensor[valid_batch_mask]]
 
         ## Update the label list for the accumulator
         self.label_list = new_accumulator_label_list
