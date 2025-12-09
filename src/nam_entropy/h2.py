@@ -1908,7 +1908,73 @@ class EntropyAccumulator2():
     # entropy_with_contitionsgiven_unspecialized_variables=['layer'])
 
 
-#    def entropy_with_conditions(self, given_specialized_variables_list=[], 
+    @torch.no_grad()
+    def validate_accumulator_sums(self, rtol: float = 1e-5, atol: float = 1e-8, raise_on_failure: bool = True) -> bool:
+        """
+        Validates that the accumulated probability distributions sum correctly.
+
+        For each label, the sum over bins (last dimension) should be identical across all
+        internal dimensions (e.g., layers, heads). This value should equal label_counts[label],
+        since each sample contributes exactly 1.0 to the sum (due to softmax normalization).
+
+        Invariant checked:
+            For all labels L and all internal dimension indices (i, j, ...):
+                granular_label_scores_sum[L, i, j, ..., :].sum() == label_counts[L]
+
+        Args:
+            rtol (float): Relative tolerance for comparison. Default: 1e-5
+            atol (float): Absolute tolerance for comparison. Default: 1e-8
+            raise_on_failure (bool): If True, raise AssertionError on validation failure.
+                If False, just return False. Default: True
+
+        Returns:
+            bool: True if validation passes, False otherwise (only if raise_on_failure=False)
+
+        Raises:
+            AssertionError: If validation fails and raise_on_failure=True
+            RuntimeError: If accumulators have not been initialized (no data processed)
+        """
+        if self.granular_label_scores_sum is None or self.label_counts is None:
+            raise RuntimeError("Accumulators not initialized. Call update() with data first.")
+
+        # granular_label_scores_sum shape: [n_labels, *extra_internal_label_dims_list, n_bins]
+        # Sum over the last dimension (bins) to get: [n_labels, *extra_internal_label_dims_list]
+        sums_over_bins = self.granular_label_scores_sum.sum(dim=-1)
+
+        # For each label, all internal dimension sums should be equal to label_counts[label]
+        n_labels = sums_over_bins.shape[0]
+
+        all_passed = True
+        error_messages = []
+
+        for label_idx in range(n_labels):
+            label_sums = sums_over_bins[label_idx]  # Shape: [*extra_internal_label_dims_list]
+            expected_count = self.label_counts[label_idx]
+
+            # Flatten to check all internal dimension combinations
+            label_sums_flat = label_sums.flatten()
+
+            # Check that all sums are close to the expected count
+            if not torch.allclose(label_sums_flat, expected_count.expand_as(label_sums_flat), rtol=rtol, atol=atol):
+                all_passed = False
+                min_sum = label_sums_flat.min().item()
+                max_sum = label_sums_flat.max().item()
+                expected = expected_count.item()
+                label_name = self.label_list[label_idx] if label_idx < len(self.label_list) else f"index_{label_idx}"
+                error_messages.append(
+                    f"Label '{label_name}': internal dimension sums range [{min_sum:.6f}, {max_sum:.6f}], "
+                    f"expected label_counts[{label_idx}] = {expected:.6f}"
+                )
+
+        if not all_passed and raise_on_failure:
+            raise AssertionError(
+                "Accumulator sum validation failed:\n" + "\n".join(error_messages)
+            )
+
+        return all_passed
+
+
+#    def entropy_with_conditions(self, given_specialized_variables_list=[],
 #                                      given_unspecialized_variables_list=[{'layer':[0,1,2,3,4,5,6]}, {'head':[0,1,2,3,4,5]}]):
 
 
