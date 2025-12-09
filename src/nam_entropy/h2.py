@@ -1786,11 +1786,13 @@ class EntropyAccumulator2():
 
 
         # Initialize accumulators on first call
+        # NOTE: We use float64 for accumulators to avoid floating-point precision loss when
+        # summing millions of values. With float32, accumulation errors of ~0.01-0.1% can occur.
         if self.granular_label_scores_sum is None:
 #            self.total_scores_sum = torch.zeros(self.n_bins, dtype=self.dtype, device=self.device)
-            self.granular_label_scores_sum = torch.zeros(self.n_labels, *self.extra_internal_label_dims_list, self.n_bins, dtype=self.dtype, device=self.device)
+            self.granular_label_scores_sum = torch.zeros(self.n_labels, *self.extra_internal_label_dims_list, self.n_bins, dtype=torch.float64, device=self.device)
 #            self.granular_label_counts = torch.zeros(self.num_labels, *self.extra_internal_label_dims_list, dtype=self.dtype, device=self.device)
-            self.label_counts = torch.zeros(self.n_labels,dtype=self.dtype, device=self.device)
+            self.label_counts = torch.zeros(self.n_labels, dtype=torch.float64, device=self.device)
 
 
 
@@ -1820,10 +1822,11 @@ class EntropyAccumulator2():
 #        self.total_scores_sum += scores_valid.sum(dim = list(range(scores_valid.ndim - 1)))
 
         ## Sum the valid rows of tmp_scores into according to valid indices from index_tensor
-        self.granular_label_scores_sum.index_add_(dim=0, source=scores_valid, index=index_valid_flat)
+        ## Cast to float64 to match accumulator dtype for precision
+        self.granular_label_scores_sum.index_add_(dim=0, source=scores_valid.to(torch.float64), index=index_valid_flat)
 
         ## Update the label counts
-        self.label_counts += torch.bincount(index_valid_flat, minlength=self.n_labels)
+        self.label_counts += torch.bincount(index_valid_flat, minlength=self.n_labels).to(torch.float64)
 
 
 
