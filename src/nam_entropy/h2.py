@@ -814,7 +814,7 @@ def cluster(all_representations: torch.Tensor,
         Requires sklearn.cluster.KMeans (currently commented out)
         Moves data to CPU for clustering, then back to original device
     """
-    clustered = KMeans(n_clusters=n_bins).fit(all_representations.to('cpu'))
+    clustered = KMeans(n_clusters=n_bins, n_init=10).fit(all_representations.to('cpu'))
     centres = torch.tensor(clustered.cluster_centers_).to(all_representations.device).float()
     if just_bins:
         return centres.to(all_representations.device)
