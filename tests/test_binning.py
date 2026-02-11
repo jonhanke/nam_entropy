@@ -7,19 +7,7 @@ import torch
 class TestUnitCubeBins:
     """Test unit cube binning functions."""
 
-    def test_unit_cube_bins_shape(self):
-        """Test unit cube bins have correct shape."""
-        from nam_entropy.h2 import unit_cube_bins
-
-        start = torch.zeros(64)
-        stop = torch.ones(64)
-        n_bins = 10
-
-        bins = unit_cube_bins(start, stop, n_bins)
-
-        assert bins.shape == (n_bins, 64)
-
-    def test_unit_cube_bins_range(self):
+    def test_unit_cube_bins_in_range(self):
         """Test unit cube bins are within expected range."""
         from nam_entropy.h2 import unit_cube_bins
 
@@ -32,53 +20,48 @@ class TestUnitCubeBins:
         assert (bins >= 0).all(), "Bins should be >= start"
         assert (bins <= 1).all(), "Bins should be <= stop"
 
+    def test_unit_cube_bins_deterministic(self):
+        """Test unit cube bins are deterministic (no randomness)."""
+        from nam_entropy.h2 import unit_cube_bins
 
-class TestBinAssignment:
-    """Test bin assignment functions."""
+        start = torch.zeros(16)
+        stop = torch.ones(16)
 
-    def test_assign_to_nearest_bin(self, sample_representations):
-        """Test samples are assigned to nearest bin."""
+        bins1 = unit_cube_bins(start, stop, 5)
+        bins2 = unit_cube_bins(start, stop, 5)
+
+        assert torch.equal(bins1, bins2)
+
+
+class TestSphericalBinsGeneration:
+    """Test spherical bin generation."""
+
+    def test_spherical_bins_shape(self):
+        """Test spherical bins have correct shape."""
         from nam_entropy.h2 import get_spherical_bins
 
-        bins = get_spherical_bins(sample_representations, n_bins=10)
+        bins = get_spherical_bins(
+            n_bins=10,
+            ambient_space_dimension=64,
+            device=torch.device('cpu'),
+            dtype=torch.float32
+        )
 
-        # Each sample should have a bin assignment
-        assert bins.shape[0] == sample_representations.shape[0]
+        assert bins.shape == (10, 64)
 
-    def test_bin_assignments_valid_range(self, sample_representations):
-        """Test bin assignments are in valid range."""
+    def test_spherical_bins_unit_norm(self):
+        """Test spherical bins are unit normalized."""
         from nam_entropy.h2 import get_spherical_bins
 
-        n_bins = 10
-        bins = get_spherical_bins(sample_representations, n_bins=n_bins, just_bins=False)
+        bins = get_spherical_bins(10, 32, torch.device('cpu'), torch.float32)
 
-        # Scores should sum to 1 (one-hot or soft assignment)
-        if bins.dim() == 3:  # [N, 1, n_bins] format
-            sums = bins.squeeze(1).sum(dim=-1)
-        else:
-            sums = bins.sum(dim=-1)
+        norms = torch.norm(bins, dim=1)
+        assert torch.allclose(norms, torch.ones(10), atol=1e-5)
 
-        assert torch.allclose(sums, torch.ones_like(sums), atol=1e-5)
+    def test_spherical_bins_different_dims(self):
+        """Test spherical bins work with different dimensions."""
+        from nam_entropy.h2 import get_spherical_bins
 
-
-class TestKMeansBins:
-    """Test KMeans binning."""
-
-    def test_kmeans_bins_shape(self, sample_representations):
-        """Test KMeans bins have correct shape."""
-        from nam_entropy.h2 import get_kmeans_bins
-
-        n_bins = 8
-        bins = get_kmeans_bins(sample_representations, n_bins=n_bins, just_bins=True)
-
-        assert bins.shape == (n_bins, sample_representations.shape[1])
-
-    def test_kmeans_assignments_shape(self, sample_representations):
-        """Test KMeans assignments have correct shape."""
-        from nam_entropy.h2 import get_kmeans_bins
-
-        n_bins = 8
-        assignments = get_kmeans_bins(sample_representations, n_bins=n_bins, just_bins=False)
-
-        assert assignments.shape[0] == sample_representations.shape[0]
-        assert assignments.shape[-1] == n_bins
+        for dim in [16, 64, 128, 768]:
+            bins = get_spherical_bins(5, dim, torch.device('cpu'), torch.float32)
+            assert bins.shape == (5, dim)

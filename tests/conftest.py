@@ -43,3 +43,38 @@ def sample_multilabel_data():
 def device():
     """Get available device."""
     return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+# Tiny model ID for fast integration tests
+# prajjwal1/bert-tiny: 2 layers, 128 hidden, 2 attention heads, ~4.4M params
+TINY_MODEL_ID = "prajjwal1/bert-tiny"
+
+
+@pytest.fixture
+def tiny_model_id():
+    """Return the tiny model ID for testing."""
+    return TINY_MODEL_ID
+
+
+@pytest.fixture
+def sample_sentences_with_labels():
+    """Sample sentences with language labels for testing."""
+    return [
+        ("Hello world", "en"),
+        ("Good morning", "en"),
+        ("How are you?", "en"),
+        ("Bonjour monde", "fr"),
+        ("Bonsoir", "fr"),
+        ("Comment allez-vous?", "fr"),
+    ]
+
+
+@pytest.fixture
+def sample_dataframe():
+    """Sample pandas DataFrame for testing."""
+    import pandas as pd
+    return pd.DataFrame({
+        'feature1': [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        'feature2': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+        'label': ['A', 'B', 'A', 'B', 'A', 'B']
+    })
