@@ -44,8 +44,35 @@ performance = [
 # Development dependencies
 dev = [
     "pytest>=8.0",
+    "pytest-cov>=4.0",
     "notebook>=7.0",
     "ipykernel>=6.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "requires_network: marks tests that require network access",
+    "requires_gpu: marks tests that require a GPU",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::FutureWarning",
+]
+
+[tool.coverage.run]
+source = ["src/nam_entropy"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
 ]
 
 [build-system]
