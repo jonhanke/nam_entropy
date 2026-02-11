@@ -964,27 +964,61 @@ class EntropyAccumulator:
         if self.total_count == 0:
             raise ValueError("Cannot compute metrics on empty accumulator. Call update() first.")
 
+        # Identify labels with samples (avoid division by zero)
+        has_samples = self.label_counts > 0
+        n_labels_with_samples = has_samples.sum().item()
+
         # Normalize to get probability distributions
-        prob_total = self.total_scores_sum / self.total_count
-        prob_by_label = self.label_scores_sum / self.label_counts.unsqueeze(1)
+        # Note: scores may not sum to 1 per sample (depends on smoothing_fn),
+        # so we normalize by sum of scores to get valid probability distribution
+        prob_total = self.total_scores_sum / self.total_scores_sum.sum()
+        # Ensure non-negative probabilities (some distance-based scores can be negative)
+        prob_total = torch.clamp(prob_total, min=0)
+        prob_total = prob_total / prob_total.sum()  # Re-normalize after clamping
+
+        # Safe division for per-label probabilities: avoid 0/0 for empty labels
+        # Normalize each label's scores to sum to 1
+        label_scores_sums = self.label_scores_sum.sum(dim=1, keepdim=True)
+        # For labels with no samples, set sum to 1 to avoid division by zero
+        safe_label_sums = label_scores_sums.clone()
+        safe_label_sums[~has_samples] = 1.0
+        prob_by_label = self.label_scores_sum / safe_label_sums
+        # Clamp and re-normalize for labels with samples
+        prob_by_label = torch.clamp(prob_by_label, min=0)
+        # Re-normalize each row
+        row_sums = prob_by_label.sum(dim=1, keepdim=True)
+        row_sums[row_sums == 0] = 1.0  # Avoid division by zero
+        prob_by_label = prob_by_label / row_sums
+        prob_by_label[~has_samples] = 0  # Zero probability for empty labels
+
         label_distribution = (self.label_counts / self.total_count).to(torch.float64)
 
         # Compute entropies
         total_entropy = entropy(prob_total)
         entropy_by_label = entropy(prob_by_label).to(torch.float64)
+        # Labels with no samples have entropy 0 (not NaN)
+        entropy_by_label[~has_samples] = 0.0
 
         # Build entropy dictionary
         entropy_dict = {'total_population': total_entropy.item()}
         for i, label in enumerate(self.label_list):
-            entropy_dict[label] = entropy_by_label[i].item()
+            if has_samples[i]:
+                entropy_dict[label] = entropy_by_label[i].item()
+            else:
+                entropy_dict[label] = None  # Indicate no samples for this label
 
         # Conditional entropy
         if conditional_entropy_label_weighting == "weighted":
+            # Weighted by empirical distribution - labels with 0 samples contribute 0
             cond_entropy = torch.dot(label_distribution, entropy_by_label).item()
         else:  # uniform
-            n = len(self.label_list)
-            uniform_dist = torch.ones(n, device=self.device) / n
-            cond_entropy = torch.dot(uniform_dist, entropy_by_label).item()
+            # Uniform weighting over labels WITH samples only
+            if n_labels_with_samples > 0:
+                uniform_dist = torch.zeros(self.num_labels, device=self.device, dtype=torch.float64)
+                uniform_dist[has_samples] = 1.0 / n_labels_with_samples
+                cond_entropy = torch.dot(uniform_dist, entropy_by_label).item()
+            else:
+                cond_entropy = 0.0
 
         # Mutual information
         mutual_info = total_entropy.item() - cond_entropy

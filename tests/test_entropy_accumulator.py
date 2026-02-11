@@ -229,6 +229,56 @@ class TestEntropyAccumulatorComputeMetrics:
         assert 'total_population' in entropy_dict
 
 
+class TestEntropyAccumulatorZeroSamples:
+    """Test handling of labels with zero samples."""
+
+    def test_compute_metrics_with_empty_label(self):
+        """Test that compute_metrics handles labels with zero samples gracefully."""
+        from nam_entropy.h import EntropyAccumulator
+
+        # Create accumulator with 3 labels but only provide data for 2
+        acc = EntropyAccumulator(n_bins=10, label_list=['A', 'B', 'C'])
+
+        # Only provide data for labels A and B (index 0 and 1), not C (index 2)
+        torch.manual_seed(42)
+        data = torch.randn(200, 32)
+        indices = torch.cat([torch.zeros(100), torch.ones(100)]).long()  # Only 0 and 1
+        acc.update(data, indices)
+
+        # This should NOT raise or return NaN
+        metrics = acc.compute_metrics()
+
+        # Check that we get valid numbers
+        assert not np.isnan(metrics['output_metrics']['entropy'])
+        assert not np.isnan(metrics['output_metrics']['conditional_entropy'])
+        assert not np.isnan(metrics['output_metrics']['mutual_information'])
+
+        # Check that label C is marked as None (no samples)
+        entropy_dict = metrics['output_metrics']['label_entropy_dict']
+        assert entropy_dict['A'] is not None
+        assert entropy_dict['B'] is not None
+        assert entropy_dict['C'] is None  # No samples for C
+
+    def test_compute_metrics_uniform_weighting_with_empty_label(self):
+        """Test uniform weighting only averages over labels with samples."""
+        from nam_entropy.h import EntropyAccumulator
+
+        acc = EntropyAccumulator(n_bins=10, label_list=['A', 'B', 'C'])
+
+        # Only provide data for label A
+        torch.manual_seed(42)
+        data = torch.randn(100, 32)
+        indices = torch.zeros(100, dtype=torch.long)  # All label A
+        acc.update(data, indices)
+
+        # Uniform weighting should only consider label A (the only one with samples)
+        metrics = acc.compute_metrics(conditional_entropy_label_weighting="uniform")
+
+        assert not np.isnan(metrics['output_metrics']['conditional_entropy'])
+        # With only one label having samples, conditional entropy equals that label's entropy
+        assert metrics['output_metrics']['label_entropy_dict']['A'] is not None
+
+
 class TestEntropyAccumulatorMerge:
     """Test EntropyAccumulator merge method."""
 
