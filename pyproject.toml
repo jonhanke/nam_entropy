@@ -34,6 +34,10 @@ dependencies = [
     "seaborn>=0.12",
 ]
 
+[project.urls]
+Homepage = "https://github.com/jonhanke/nam_entropy"
+Issues = "https://github.com/jonhanke/nam_entropy/issues"
+
 [project.optional-dependencies]
 # For users who want maximum performance (may conflict with Colab)
 performance = [
